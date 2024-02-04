@@ -3492,6 +3492,38 @@
             <param name="isStateChanged">Indicates if the circuit has been closed with this operation.</param>
             <returns><see langword="true"/> if the circuit is closed, either because it was already closed or because it has been closed with this operation. <see langword="false"/> otherwise.</returns>
         </member>
+        <member name="T:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker">
+            <summary>
+            An implementation of <see cref="T:ZiggyCreatures.Caching.Fusion.Locking.IFusionCacheMemoryLocker"/> based on AsyncKeyedLock.
+            </summary>
+        </member>
+        <member name="M:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker.#ctor">
+            <summary>
+            Initializes a new instance of the <see cref="T:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker"/> class.
+            </summary>
+        </member>
+        <member name="M:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker.#ctor(System.Action{AsyncKeyedLock.AsyncKeyedLockOptions})">
+            <summary>
+            Initializes a new instance of the <see cref="T:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker"/> class.
+            </summary>
+        </member>
+        <member name="M:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker.#ctor(System.Action{AsyncKeyedLock.AsyncKeyedLockOptions},System.Int32,System.Int32)">
+            <summary>
+            Initializes a new instance of the <see cref="T:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker"/> class.
+            </summary>
+        </member>
+        <member name="M:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker.AcquireLockAsync(System.String,System.String,System.String,System.String,System.TimeSpan,Microsoft.Extensions.Logging.ILogger,System.Threading.CancellationToken)">
+            <inheritdoc/>
+        </member>
+        <member name="M:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker.AcquireLock(System.String,System.String,System.String,System.String,System.TimeSpan,Microsoft.Extensions.Logging.ILogger,System.Threading.CancellationToken)">
+            <inheritdoc/>
+        </member>
+        <member name="M:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker.ReleaseLock(System.String,System.String,System.String,System.String,System.Object,Microsoft.Extensions.Logging.ILogger)">
+            <inheritdoc/>
+        </member>
+        <member name="M:ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyedLocker.Dispose">
+            <inheritdoc/>
+        </member>
         <member name="T:ZiggyCreatures.Caching.Fusion.Locking.IFusionCacheMemoryLocker">
             <summary>
             A FusionCache component to handle acquiring and releasing memory locks in a highly optimized way.

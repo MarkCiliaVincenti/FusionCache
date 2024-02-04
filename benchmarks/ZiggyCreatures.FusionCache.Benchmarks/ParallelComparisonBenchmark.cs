@@ -97,10 +97,44 @@ namespace ZiggyCreatures.Caching.Fusion.Benchmarks
 			// NO NEED TO CLEANUP, AUTOMATICALLY DONE WHEN DISPOSING
 		}
 
-		[Benchmark]
+		//[Benchmark]
 		public async Task FusionCacheProbabilistic()
 		{
 			using var cache = new FusionCache(new FusionCacheOptions { DefaultEntryOptions = new FusionCacheEntryOptions(CacheDuration) }, memoryLocker: new ProbabilisticMemoryLocker());
+
+			for (int i = 0; i < Rounds; i++)
+			{
+				var tasks = new ConcurrentBag<Task>();
+
+				Parallel.ForEach(Keys, key =>
+				{
+					Parallel.For(0, Accessors, _ =>
+					{
+						var t = cache.GetOrSetAsync<SamplePayload>(
+						   key,
+						   async ct =>
+						   {
+							   await Task.Delay(FactoryDurationMs).ConfigureAwait(false);
+							   return new SamplePayload();
+						   }
+					   );
+						tasks.Add(t.AsTask());
+					});
+				});
+
+				await Task.WhenAll(tasks).ConfigureAwait(false);
+			}
+
+			// NO NEED TO CLEANUP, AUTOMATICALLY DONE WHEN DISPOSING
+		}
+
+		[Benchmark]
+		public async Task FusionCacheAsyncKeyedLocker()
+		{
+			using var cache = new FusionCache(new FusionCacheOptions { DefaultEntryOptions = new FusionCacheEntryOptions(CacheDuration) }, memoryLocker: new AsyncKeyedLocker(o =>
+			{
+				o.PoolSize = KeysCount;
+			}, Environment.ProcessorCount, KeysCount));
 
 			for (int i = 0; i < Rounds; i++)
 			{
@@ -161,7 +195,7 @@ namespace ZiggyCreatures.Caching.Fusion.Benchmarks
 			cache.Clear();
 		}
 
-		[Benchmark]
+		//[Benchmark]
 		public async Task CacheTower()
 		{
 			await using var cache = new CacheStack(null, new CacheStackOptions(new[] { new MemoryCacheLayer() }) { Extensions = new[] { new AutoCleanupExtension(TimeSpan.FromMinutes(5)) } });
@@ -197,7 +231,7 @@ namespace ZiggyCreatures.Caching.Fusion.Benchmarks
 			await cache.FlushAsync();
 		}
 
-		[Benchmark]
+		//[Benchmark]
 		public async Task EasyCaching()
 		{
 			var factory = ServiceProvider.GetRequiredService<IEasyCachingProviderFactory>();
@@ -231,7 +265,7 @@ namespace ZiggyCreatures.Caching.Fusion.Benchmarks
 			await cache.FlushAsync();
 		}
 
-		[Benchmark]
+		//[Benchmark]
 		public async Task LazyCache()
 		{
 			using var cache = new MemoryCache(new MemoryCacheOptions());
