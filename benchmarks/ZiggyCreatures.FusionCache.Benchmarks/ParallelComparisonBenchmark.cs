@@ -39,10 +39,10 @@ namespace ZiggyCreatures.Caching.Fusion.Benchmarks
 		[Params(10, 1000)]
 		public int Accessors;
 
-		[Params(100)]
+		[Params(100, 1000)]
 		public int KeysCount;
 
-		[Params(1, 10)]
+		[Params(10)]
 		public int Rounds;
 
 		private List<string> Keys = null!;
@@ -134,6 +134,7 @@ namespace ZiggyCreatures.Caching.Fusion.Benchmarks
 			using var cache = new FusionCache(new FusionCacheOptions { DefaultEntryOptions = new FusionCacheEntryOptions(CacheDuration) }, memoryLocker: new AsyncKeyedLocker(o =>
 			{
 				o.PoolSize = KeysCount;
+				o.PoolInitialFill = Environment.ProcessorCount * 2;
 			}, Environment.ProcessorCount, KeysCount));
 
 			for (int i = 0; i < Rounds; i++)
