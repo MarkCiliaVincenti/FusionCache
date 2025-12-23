@@ -6,6 +6,8 @@ using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
 using ZiggyCreatures.Caching.Fusion.Locking;
 using ZiggyCreatures.Caching.Fusion.Locking.AsyncKeyed;
+using DeterministicGuids;
+using static ServiceStack.Diagnostics;
 
 namespace ZiggyCreatures.Caching.Fusion.Benchmarks;
 
@@ -25,13 +27,13 @@ public class LockerComparisonBenchmark
 	}
 
 
-	[Params(200, 1_000)]
+	[Params(100, 200)]
 	public int NumberOfLocks;
 
-	[Params(100, 1_000)]
+	[Params(200, 500, 1000)]
 	public int Contention;
 
-	[Params(0, 10)]
+	[Params(0)]
 	public int GuidReversals;
 
 	private StandardMemoryLocker _StandardMemoryLocker = null!;
@@ -56,10 +58,10 @@ public class LockerComparisonBenchmark
 	public void Setup()
 	{
 		_StandardMemoryLocker = new StandardMemoryLocker(StandardPoolSize);
-		_ProbabilisticMemoryLocker = new ProbabilisticMemoryLocker(ProbabilisticPoolSize);
+        _ProbabilisticMemoryLocker = new ProbabilisticMemoryLocker(ProbabilisticPoolSize);
 		_ExperimentalMemoryLocker = new ExperimentalMemoryLocker();
-		_AsyncKeyedMemoryLocker = new AsyncKeyedMemoryLocker(new AsyncKeyedLock.AsyncKeyedLockOptions(poolSize: StandardPoolSize, poolInitialFill: StandardPoolSize));
-		_StripedAsyncKeyedMemoryLocker = new StripedAsyncKeyedMemoryLocker(ProbabilisticPoolSize);
+        _AsyncKeyedMemoryLocker = new AsyncKeyedMemoryLocker(new AsyncKeyedLock.AsyncKeyedLockOptions(poolSize: StandardPoolSize, poolInitialFill: StandardPoolSize));
+        _StripedAsyncKeyedMemoryLocker = new StripedAsyncKeyedMemoryLocker(ProbabilisticPoolSize);
 	}
 
 	[IterationSetup]
@@ -121,10 +123,10 @@ public class LockerComparisonBenchmark
 
 	private async Task RunTests(ParallelQuery<Task> tasks)
 	{
-		if (NumberOfLocks == Contention)
-		{
-			throw new Exception("Thrown on purpose");
-		}
+		//if (NumberOfLocks == Contention)
+		//{
+		//	throw new Exception("Thrown on purpose");
+		//}
 		await Task.WhenAll(tasks).ConfigureAwait(false);
 	}
 
@@ -165,7 +167,7 @@ public class LockerComparisonBenchmark
 	{
 		for (int i = 0; i < GuidReversals; i++)
 		{
-			Guid guid = Guid.NewGuid();
+			Guid guid = DeterministicGuid.Create(DeterministicGuid.Namespaces.Events, i.ToString());
 			var guidString = guid.ToString();
 			guidString = guidString.Reverse().ToString();
 #pragma warning disable CS8602 // Dereference of a possibly null reference.

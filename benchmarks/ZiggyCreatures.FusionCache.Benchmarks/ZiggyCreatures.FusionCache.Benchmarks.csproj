@@ -2,18 +2,19 @@
 
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
-		<TargetFramework>net9.0</TargetFramework>
+		<TargetFramework>net10.0</TargetFramework>
 		<!--<TargetFrameworks>net6.0;net8.0</TargetFrameworks>-->
 		<RootNamespace>ZiggyCreatures.Caching.Fusion.Benchmarks</RootNamespace>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
+		<PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
 		<PackageReference Include="CacheTower" Version="0.14.0" />
+		<PackageReference Include="DeterministicGuids" Version="1.0.7" />
 		<PackageReference Include="EasyCaching.InMemory" Version="1.9.2" />
 		<PackageReference Include="FastCache.Cached" Version="1.8.2" />
 		<PackageReference Include="LazyCache" Version="2.4.0" />
-		<PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="9.3.0" />
+		<PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.1.0" />
 	</ItemGroup>
 
 	<ItemGroup>
