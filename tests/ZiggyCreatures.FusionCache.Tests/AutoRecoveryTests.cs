@@ -26,12 +26,16 @@ public partial class AutoRecoveryTests
 
 	private readonly TimeSpan InitialBackplaneDelay = TimeSpan.FromMilliseconds(300);
 	private readonly TimeSpan MultiNodeOperationsDelay = TimeSpan.FromMilliseconds(300);
+	private readonly TimeSpan AutoRecoverySafeAllowance = TimeSpan.FromSeconds(1);
 
 	private FusionCacheOptions CreateFusionCacheOptions()
 	{
 		var res = new FusionCacheOptions
 		{
-			CacheKeyPrefix = TestingCacheKeyPrefix
+			CacheKeyPrefix = TestingCacheKeyPrefix,
+			DefaultEntryOptions = {
+				Duration = TimeSpan.FromMinutes(5)
+			}
 		};
 
 		return res;
@@ -58,7 +62,7 @@ public partial class AutoRecoveryTests
 		return new ChaosBackplane(CreateBackplane(connectionId), logger);
 	}
 
-	private IFusionCache CreateFusionCache(string? cacheName, SerializerType? serializerType, IDistributedCache? distributedCache, IFusionCacheBackplane? backplane, Action<FusionCacheOptions>? setupAction = null)
+	private FusionCache CreateFusionCache(string? cacheName, SerializerType? serializerType, IDistributedCache? distributedCache, IFusionCacheBackplane? backplane, Action<FusionCacheOptions>? setupAction = null)
 	{
 		var options = CreateFusionCacheOptions();
 

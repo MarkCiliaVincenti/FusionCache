@@ -277,7 +277,7 @@ public class FusionCacheOptions
 	public string? BackplaneChannelPrefix { get; set; }
 
 	/// <summary>
-	/// When using a backplane, if set to <see langword="true"/> FusionCache will wait for the initial Subscribe operation, otherwise it will not.
+	/// When using a backplane, if set to <see langword="true"/> FusionCache will wait for the Subscribe/Unsubscribe operations, otherwise it will act in a fire-and-forget way (any error will still be logged anyway).
 	/// <br/><br/>
 	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Backplane.md"/>
 	/// </summary>
@@ -625,6 +625,18 @@ public class FusionCacheOptions
 	}
 
 	/// <summary>
+	/// Validates the options, both individually and in combination with each other.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	internal void Validate()
+	{
+		InternalStrings.Validate();
+		DefaultEntryOptions.Validate();
+		TagsDefaultEntryOptions.Validate();
+	}
+
+	/// <summary>
 	/// Creates a new <see cref="FusionCacheOptions"/> object by duplicating all the options of the current one.
 	/// <br/><br/>
 	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
@@ -632,6 +644,8 @@ public class FusionCacheOptions
 	/// <returns>The newly created <see cref="FusionCacheOptions"/> object.</returns>
 	public FusionCacheOptions Duplicate()
 	{
+		Validate();
+
 		var res = new FusionCacheOptions
 		{
 			CacheName = CacheName,
