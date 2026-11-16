@@ -69,10 +69,10 @@ public class FusionCacheOptions
 
 		_tagsDefaultEntryOptions = new FusionCacheEntryOptions
 		{
-			Duration = TimeSpan.FromHours(24 * 10),
-			DistributedCacheDuration = TimeSpan.FromHours(24 * 10),
+			Duration = TimeSpan.FromHours(1), // L1: 1 HOUR
+			DistributedCacheDuration = TimeSpan.FromHours(24), // L2: 24 HOURS
 			IsFailSafeEnabled = true,
-			FailSafeMaxDuration = TimeSpan.FromHours(24 * 10),
+			FailSafeMaxDuration = TimeSpan.FromHours(24 * 10), // FALLBACK: 10 DAYS
 			AllowBackgroundDistributedCacheOperations = false,
 			AllowBackgroundBackplaneOperations = false,
 			ReThrowDistributedCacheExceptions = false,
@@ -83,6 +83,7 @@ public class FusionCacheOptions
 			SkipDistributedCacheRead = false,
 			SkipDistributedCacheWrite = false,
 			SkipBackplaneNotifications = false,
+			SkipDistributedLocker = true,
 			Priority = CacheItemPriority.NeverRemove,
 			Size = 0
 		};
@@ -99,6 +100,13 @@ public class FusionCacheOptions
 		AutoRecoveryMaxRetryCount = null;
 		AutoRecoveryDelay = TimeSpan.FromMilliseconds(5_000);
 
+		// TAGGING
+		DisableTagging = false;
+		RemoveByTagBehavior = RemoveByTagBehavior.Expire;
+
+		// BEST PRACTICES
+		EnableBestPracticesAdvisor = true;
+
 		// LOG LEVELS
 		IncoherentOptionsNormalizationLogLevel = LogLevel.Warning;
 		SerializationErrorsLogLevel = LogLevel.Error;
@@ -110,9 +118,14 @@ public class FusionCacheOptions
 		EventHandlingErrorsLogLevel = LogLevel.Warning;
 		BackplaneSyntheticTimeoutsLogLevel = LogLevel.Warning;
 		BackplaneErrorsLogLevel = LogLevel.Warning;
+		DistributedLockerErrorsLogLevel = LogLevel.Warning;
 		PluginsInfoLogLevel = LogLevel.Information;
 		PluginsErrorsLogLevel = LogLevel.Error;
 		MissingCacheKeyPrefixWarningLogLevel = LogLevel.Warning;
+#pragma warning disable CS0618 // Type or member is obsolete
+		SerializationIssuesLogLevel = LogLevel.Warning;
+#pragma warning restore CS0618 // Type or member is obsolete
+		SerializationConfigIssuesLogLevel = LogLevel.Warning;
 	}
 
 	/// <summary>
@@ -264,7 +277,7 @@ public class FusionCacheOptions
 	public string? BackplaneChannelPrefix { get; set; }
 
 	/// <summary>
-	/// When using a backplane, if set to <see langword="true"/> FusionCache will wait for the initial Subscribe operation, otherwise it will not.
+	/// When using a backplane, if set to <see langword="true"/> FusionCache will wait for the Subscribe/Unsubscribe operations, otherwise it will act in a fire-and-forget way (any error will still be logged anyway).
 	/// <br/><br/>
 	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Backplane.md"/>
 	/// </summary>
@@ -461,6 +474,14 @@ public class FusionCacheOptions
 	public bool DisableTagging { get; set; }
 
 	/// <summary>
+	/// Specifies the behavior to use when removing items by tag.
+	/// <br/><br/>
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Tagging.md"/>
+	/// </summary>
+	public RemoveByTagBehavior RemoveByTagBehavior { get; set; }
+
+	/// <summary>
 	/// If set to <see langword="true"/>, ignores the timeouts when debugging, meaning when there's a debugger attached (check done via <see cref="Debugger.IsAttached"/>).
 	/// <br/>
 	/// All the available timeouts are supported: factory timeouts (soft + hard), distributed cache timeouts (soft + hard), lock timeout, etc.
@@ -468,6 +489,11 @@ public class FusionCacheOptions
 	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Timeouts.md"/>
 	/// </summary>
 	public bool IgnoreTimeoutsWhenDebugging { get; set; }
+
+	/// <summary>
+	/// If set to <see langword="true"/>, checks for common best practices and, in case they are not respected, logs some warnings.
+	/// </summary>
+	public bool EnableBestPracticesAdvisor { get; set; }
 
 	/// <summary>
 	/// Specify the <see cref="LogLevel"/> to use when some options have incoherent values that have been fixed with a normalization, like for example when a FailSafeMaxDuration is lower than a Duration, so the Duration is used instead.
@@ -546,6 +572,13 @@ public class FusionCacheOptions
 	public LogLevel BackplaneErrorsLogLevel { get; set; }
 
 	/// <summary>
+	/// Specify the <see cref="LogLevel"/> to use when an error occurs during a distributed locking operation.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Logging.md"/>
+	/// </summary>
+	public LogLevel DistributedLockerErrorsLogLevel { get; set; }
+
+	/// <summary>
 	/// Specify the <see cref="LogLevel"/> to use when logging info about plugins.
 	/// <br/><br/>
 	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Logging.md"/>
@@ -566,9 +599,41 @@ public class FusionCacheOptions
 	/// </summary>
 	public LogLevel MissingCacheKeyPrefixWarningLogLevel { get; set; }
 
+	/// <summary>
+	/// Specify the <see cref="LogLevel"/> to use when it looks like the serializer being used does not correctly deserialize value tuples, probably because of how fields (not properties) are being handled.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheLevels.md"/>
+	/// <br/><br/>
+	/// <strong>SEE:</strong> <see href="https://github.com/dotnet/runtime/issues/70352"/>
+	/// </summary>
+	[EditorBrowsable(EditorBrowsableState.Never)]
+	[Obsolete("Please use SerializationConfigIssuesLogLevel instead.")]
+	public LogLevel SerializationIssuesLogLevel { get; set; }
+
+	/// <summary>
+	/// Specify the <see cref="LogLevel"/> to use when it looks like the serializer being used does not correctly deserialize value tuples, probably because of how fields (not properties) are being handled.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheLevels.md"/>
+	/// <br/><br/>
+	/// <strong>SEE:</strong> <see href="https://github.com/dotnet/runtime/issues/70352"/>
+	/// </summary>
+	public LogLevel SerializationConfigIssuesLogLevel { get; set; }
+
 	FusionCacheOptions IOptions<FusionCacheOptions>.Value
 	{
 		get { return this; }
+	}
+
+	/// <summary>
+	/// Validates the options, both individually and in combination with each other.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	internal void Validate()
+	{
+		InternalStrings.Validate();
+		DefaultEntryOptions.Validate();
+		TagsDefaultEntryOptions.Validate();
 	}
 
 	/// <summary>
@@ -579,6 +644,8 @@ public class FusionCacheOptions
 	/// <returns>The newly created <see cref="FusionCacheOptions"/> object.</returns>
 	public FusionCacheOptions Duplicate()
 	{
+		Validate();
+
 		var res = new FusionCacheOptions
 		{
 			CacheName = CacheName,
@@ -616,6 +683,7 @@ public class FusionCacheOptions
 			IncludeTagsInMetrics = IncludeTagsInMetrics,
 
 			DisableTagging = DisableTagging,
+			RemoveByTagBehavior = RemoveByTagBehavior,
 
 			IgnoreTimeoutsWhenDebugging = IgnoreTimeoutsWhenDebugging,
 
@@ -635,12 +703,21 @@ public class FusionCacheOptions
 			BackplaneSyntheticTimeoutsLogLevel = BackplaneSyntheticTimeoutsLogLevel,
 			BackplaneErrorsLogLevel = BackplaneErrorsLogLevel,
 
+			DistributedLockerErrorsLogLevel = DistributedLockerErrorsLogLevel,
+
 			EventHandlingErrorsLogLevel = EventHandlingErrorsLogLevel,
 
 			PluginsErrorsLogLevel = PluginsErrorsLogLevel,
 			PluginsInfoLogLevel = PluginsInfoLogLevel,
 
 			MissingCacheKeyPrefixWarningLogLevel = MissingCacheKeyPrefixWarningLogLevel,
+
+#pragma warning disable CS0618 // Type or member is obsolete
+			SerializationIssuesLogLevel = SerializationIssuesLogLevel,
+#pragma warning restore CS0618 // Type or member is obsolete
+			SerializationConfigIssuesLogLevel = SerializationConfigIssuesLogLevel,
+
+			EnableBestPracticesAdvisor = EnableBestPracticesAdvisor,
 		};
 
 		return res;

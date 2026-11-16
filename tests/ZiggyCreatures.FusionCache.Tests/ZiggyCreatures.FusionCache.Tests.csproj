@@ -1,10 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>net9.0</TargetFramework>
+		<TargetFramework>net10.0</TargetFramework>
 		<IsPackable>false</IsPackable>
 		<RootNamespace>FusionCacheTests</RootNamespace>
 		<OutputType>Exe</OutputType>
+		<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+		<UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+		<TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -14,22 +17,23 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="9.0.2" />
-		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.3" />
-		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
-		<PackageReference Include="CacheManager.Microsoft.Extensions.Caching.Memory" Version="1.2.0" />
+		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.14" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
+		<PackageReference Include="CacheManager.Microsoft.Extensions.Caching.Memory" Version="3.0.0" />
 		<PackageReference Include="CacheTower" Version="0.14.0" />
 		<PackageReference Include="EasyCaching.InMemory" Version="1.9.2" />
 		<PackageReference Include="LazyCache" Version="2.4.0" />
-		<PackageReference Include="xunit.v3" Version="2.0.1" />
-		<PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="9.3.0" />
-		<PackageReference Include="xunit.runner.visualstudio" Version="3.0.2">
+		<PackageReference Include="xunit.v3" Version="4.0.2" />
+		<PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.11.0" />
+		<PackageReference Include="xunit.runner.visualstudio" Version="4.0.1">
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 			<PrivateAssets>all</PrivateAssets>
 		</PackageReference>
 	</ItemGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\..\src\ZiggyCreatures.FusionCache.Locking.Distributed.Memory\ZiggyCreatures.FusionCache.Locking.Distributed.Memory.csproj" />
+		<ProjectReference Include="..\..\src\ZiggyCreatures.FusionCache.Locking.Distributed.Redis\ZiggyCreatures.FusionCache.Locking.Distributed.Redis.csproj" />
 		<ProjectReference Include="..\..\src\ZiggyCreatures.FusionCache\ZiggyCreatures.FusionCache.csproj" />
 		<ProjectReference Include="..\..\src\ZiggyCreatures.FusionCache.Chaos\ZiggyCreatures.FusionCache.Chaos.csproj" />
 		<ProjectReference Include="..\..\src\ZiggyCreatures.FusionCache.Backplane.Memory\ZiggyCreatures.FusionCache.Backplane.Memory.csproj" />

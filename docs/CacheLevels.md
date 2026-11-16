@@ -57,9 +57,24 @@ In the end this boils down to 2 possible ways:
 
 Of course in both cases you will also have at your disposal the added ability to enable extra features, like [fail-safe](FailSafe.md), advanced [timeouts](Timeouts.md) and so on.
 
-Also, if needed, we can use a different `Duration` specific for the distributed cache via the `DistributedCacheDuration` option: in this way updates to the distributed cache can be picked up more frequently, in case we don't want to use a [backplane](Backplane.md) for some reason.
-
 Finally we can even execute the distributed operations in the background, to make things even faster: we can read more on the related [docs page](BackgroundDistributedOperations.md).
+
+
+## ⚙️ Level-specific options
+
+If needed, we can use different options for each level (L1 & L2), like:
+- `MemoryCacheDuration`
+- `DistributedCacheDuration`
+
+For example, by specifying a lower `MemoryCacheDuration` we can refresh a value in L1 from L2 more frequently (but if we use a [backplane](Backplane.md) that would not be necessary).
+
+Another example is when we want to skip read/write operations on each level via:
+- `SkipMemoryCacheWrite`
+- `SkipMemoryCacheRead`
+- `SkipDistributedCacheWrite`
+- `SkipDistributedCacheRead`
+
+In general, if there's a `WhateverOption` and it makes sense to be able to specify a different value for each level, we can expect to find a `MemoryCacheWhateverOption` and a `DistributedCacheWhateverOption` and that, if a level-specific value is not provided, the normal one will be used.
 
 
 ## 📢 Backplane ([more](Backplane.md))
@@ -216,11 +231,14 @@ There are a variety of already existing `IDistributedCache` implementations avai
 | [Microsoft.Extensions.Caching.Cosmos](https://www.nuget.org/packages/Microsoft.Extensions.Caching.Cosmos/) <br/> The official Microsoft implementation for Cosmos DB | `MIT` | [![NuGet](https://img.shields.io/nuget/v/Microsoft.Extensions.Caching.Cosmos.svg)](https://www.nuget.org/packages/Microsoft.Extensions.Caching.Cosmos/) |
 | [MongoDbCache](https://www.nuget.org/packages/MongoDbCache/) <br/> An implementation for MongoDB | `MIT` | [![NuGet](https://img.shields.io/nuget/v/MongoDbCache.svg)](https://www.nuget.org/packages/MongoDbCache/) |
 | [Community.Microsoft.Extensions.Caching.PostgreSql](https://www.nuget.org/packages/Community.Microsoft.Extensions.Caching.PostgreSql/) <br/> An implementation for PostgreSQL | `MIT` | [![NuGet](https://img.shields.io/nuget/v/Community.Microsoft.Extensions.Caching.PostgreSql.svg)](https://www.nuget.org/packages/Community.Microsoft.Extensions.Caching.PostgreSql/) |
+| [Microsoft.Extensions.Caching.Postgres](https://www.nuget.org/packages/Microsoft.Extensions.Caching.Postgres/) <br/> An implementation for PostgreSQL, by Microsoft | `MIT` | [![NuGet](https://img.shields.io/nuget/v/Microsoft.Extensions.Caching.Postgres.svg)](https://www.nuget.org/packages/Microsoft.Extensions.Caching.Postgres/) |
 | [MarkCBB.Extensions.Caching.MongoDB](https://www.nuget.org/packages/MarkCBB.Extensions.Caching.MongoDB/) <br/> Another implementation for MongoDB | `Apache v2` | [![NuGet](https://img.shields.io/nuget/v/MarkCBB.Extensions.Caching.MongoDB.svg)](https://www.nuget.org/packages/MarkCBB.Extensions.Caching.MongoDB/) |
 | [EnyimMemcachedCore](https://www.nuget.org/packages/EnyimMemcachedCore/) <br/> An implementation for Memcached | `Apache v2` | [![NuGet](https://img.shields.io/nuget/v/EnyimMemcachedCore.svg)](https://www.nuget.org/packages/EnyimMemcachedCore/) |
 | [NeoSmart.Caching.Sqlite](https://www.nuget.org/packages/NeoSmart.Caching.Sqlite/) <br/> An implementation for SQLite | `MIT` | [![NuGet](https://img.shields.io/nuget/v/NeoSmart.Caching.Sqlite.svg)](https://www.nuget.org/packages/NeoSmart.Caching.Sqlite/) |
 | [AWS.AspNetCore.DistributedCacheProvider](https://www.nuget.org/packages/AWS.AspNetCore.DistributedCacheProvider/) <br/> An implementation for AWS DynamoDB | `Apache v2` | [![NuGet](https://img.shields.io/nuget/v/AWS.AspNetCore.DistributedCacheProvider.svg)](https://www.nuget.org/packages/AWS.AspNetCore.DistributedCacheProvider/) |
 | [Aerospike.Extensions.Caching](https://www.nuget.org/packages/Aerospike.Extensions.Caching/) <br/> An implementation for Aerospike | `Apache v2` | [![NuGet](https://img.shields.io/nuget/v/Aerospike.Extensions.Caching.svg)](https://www.nuget.org/packages/Aerospike.Extensions.Caching/) |
+| [Apache.Extensions.Caching.Ignite](https://www.nuget.org/packages/Apache.Extensions.Caching.Ignite/) <br/> An implementation for Apache Ignite | `Apache v2` | [![NuGet](https://img.shields.io/nuget/v/Apache.Extensions.Caching.Ignite.svg)](https://www.nuget.org/packages/Apache.Extensions.Caching.Ignite/) |
+| [Hazelcast.Net.Caching](https://www.nuget.org/packages/Hazelcast.Net.Caching/) <br/> An implementation for Hazelcast | `Apache v2` | [![NuGet](https://img.shields.io/nuget/v/Hazelcast.Net.Caching.svg)](https://www.nuget.org/packages/Hazelcast.Net.Caching/) |
 | [Microsoft.Extensions.Caching.Memory](https://www.nuget.org/packages/Microsoft.Extensions.Caching.Memory/) <br/> An in-memory implementation | `MIT` | [![NuGet](https://img.shields.io/nuget/v/Microsoft.Extensions.Caching.Memory.svg)](https://www.nuget.org/packages/Microsoft.Extensions.Caching.Memory/) |
 
 As for an implementation of `IFusionCacheSerializer`, pick one of these:

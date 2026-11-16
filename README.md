@@ -55,21 +55,25 @@ Curious about what you can achieve from start to finish? There's a [👩‍🏫 
 
 In search of all the docs? There's a [page](docs/README.md) for that, too.
 
-## 🧑‍🏫 Courses ([more](https://dometrain.com/course/getting-started-caching-in-dotnet/?ref=jody-donetti))
+## 🧑‍🏫 Courses ([more](https://dometrain.com/course/getting-started-caching-in-dotnet/?ref=jody-donetti) and [more](https://dometrain.com/course/deep-dive-caching-in-dotnet/?ref=jody-donetti))
 
-If you are interested in all things caching, I published [a course](https://dometrain.com/course/getting-started-caching-in-dotnet/?ref=jody-donetti) on Dometrain:
+If you are interested in all things caching, I published 2 courses on Dometrain: Caching in .NET, [Getting Started](https://dometrain.com/course/getting-started-caching-in-dotnet/?ref=jody-donetti) & [Deep Dive](https://dometrain.com/course/deep-dive-caching-in-dotnet/?ref=jody-donetti).
 
 <div align="center">
 
-[![Caching Course on Dometrain](docs/images/dometrain-getting-started-cover.png)](https://dometrain.com/course/getting-started-caching-in-dotnet/?ref=jody-donetti)
+[![Caching Course on Dometrain](docs/images/dometrain-getting-started-cover-mini.png)](https://dometrain.com/course/getting-started-caching-in-dotnet/?ref=jody-donetti)
+&nbsp;&nbsp;
+[![Caching Course on Dometrain](docs/images/dometrain-deep-dive-cover-mini.png)](https://dometrain.com/course/deep-dive-caching-in-dotnet/?ref=jody-donetti)
 
 </div>
 
 If you like the FusionCache docs, you may like it too.
 
-But mind you, it's not just about FusionCache but about caching as a whole: we'll go from the very foundations to pretty advanced topics and scenarios. We'll cover performance, robustness, resiliency and we'll see different real-world problems and, most importantly, solutions for them.
+But mind you, they are not just about FusionCache but about caching as a whole: we'll go from the very foundations to pretty advanced topics and scenarios. We'll cover performance, robustness, resiliency and we'll see different real-world problems and, most importantly, solutions for them.
 
 I tried condensing 20+ years dealing with caching in one place, all in an approachable way.
+
+One journey, two chapters, filled with everything you can ask for about caching.
 
 ## 📺 Talks ([more](https://github.com/jodydonetti/talks))
 
@@ -92,7 +96,7 @@ You can find most of them, sometimes with the related slides, in the dedicated r
 FusionCache has a lot of features, let's see them grouped together:
 
 #### Resiliency
-- [**🛡️ Cache Stampede**](docs/CacheStampede.md): automatic protection from the Cache Stampede problem
+- [**🛡️ Cache Stampede**](docs/CacheStampede.md): automatic protection, both local (single node) and distributed (multiple nodes)
 - [**💣 Fail-Safe**](docs/FailSafe.md): a mechanism to avoids transient failures, by reusing an expired entry as a temporary fallback
 - [**↩️ Auto-Recovery**](docs/AutoRecovery.md): self-healing for the entire cache, all automatically
 
@@ -157,7 +161,6 @@ Main packages:
 | Package Name                   | Version | Downloads |
 |--------------------------------|:---------------:|:---------:|
 | [ZiggyCreatures.FusionCache](https://www.nuget.org/packages/ZiggyCreatures.FusionCache/) <br/> The core package | [![NuGet](https://img.shields.io/nuget/v/ZiggyCreatures.FusionCache.svg)](https://www.nuget.org/packages/ZiggyCreatures.FusionCache/) | ![Nuget](https://img.shields.io/nuget/dt/ZiggyCreatures.FusionCache) |
-| [ZiggyCreatures.FusionCache.Locking.AsyncKeyed](https://www.nuget.org/packages/ZiggyCreatures.FusionCache.Locking.AsyncKeyed/) <br/> Uses the performant AsyncKeyedLock library for locking purposes | [![NuGet](https://img.shields.io/nuget/v/ZiggyCreatures.FusionCache.Locking.AsyncKeyed.svg)](https://www.nuget.org/packages/ZiggyCreatures.FusionCache.Locking.AsyncKeyed/) | ![Nuget](https://img.shields.io/nuget/dt/ZiggyCreatures.FusionCache.Locking.AsyncKeyed) |
 | [ZiggyCreatures.FusionCache.OpenTelemetry](https://www.nuget.org/packages/ZiggyCreatures.FusionCache.OpenTelemetry/) <br/> Adds native support for OpenTelemetry setup | [![NuGet](https://img.shields.io/nuget/v/ZiggyCreatures.FusionCache.OpenTelemetry.svg)](https://www.nuget.org/packages/ZiggyCreatures.FusionCache.OpenTelemetry/) | ![Nuget](https://img.shields.io/nuget/dt/ZiggyCreatures.FusionCache.OpenTelemetry) |
 | [ZiggyCreatures.FusionCache.Chaos](https://www.nuget.org/packages/ZiggyCreatures.FusionCache.Chaos/) <br/> A package to add some controlled chaos, for testing | [![NuGet](https://img.shields.io/nuget/v/ZiggyCreatures.FusionCache.Chaos.svg)](https://www.nuget.org/packages/ZiggyCreatures.FusionCache.Chaos/) | ![Nuget](https://img.shields.io/nuget/dt/ZiggyCreatures.FusionCache.Chaos) |
 
@@ -361,7 +364,7 @@ Yes!
 
 FusionCache is being used **in production** on **real world projects** for years, happily handling billions of requests.
 
-Considering that the FusionCache packages have been downloaded more than **30 million times** (thanks everybody!) it may very well be used even more.
+Considering that the FusionCache packages have been downloaded more than **100M times** (thanks everyone!) it may very well be used even more.
 
 Oh, and it is being used in products by Microsoft itself, like [Data API Builder](https://devblogs.microsoft.com/azure-sql/data-api-builder-ga/)!
 

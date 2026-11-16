@@ -45,106 +45,6 @@ public abstract class AbstractChaosComponent
 	public float ChaosThrowProbability { get; set; }
 
 	/// <summary>
-	/// Force chaos delays to always be between certain amounts.
-	/// </summary>
-	/// <param name="minDelay">The minimum amount of delay.</param>
-	/// <param name="maxDelay">The maximum amount of delay.</param>
-	public virtual void SetAlwaysDelay(TimeSpan minDelay, TimeSpan maxDelay)
-	{
-		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
-			_logger.Log(LogLevel.Debug, $"FUSION {_className}: SetDelay");
-
-		ChaosMinDelay = minDelay;
-		ChaosMaxDelay = maxDelay;
-	}
-
-	/// <summary>
-	/// Force chaos delays to always be of exactly this amount.
-	/// </summary>
-	/// <param name="delay">The amount of delay.</param>
-	public virtual void SetAlwaysDelayExactly(TimeSpan delay)
-	{
-		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
-			_logger.Log(LogLevel.Debug, $"FUSION {_className}: SetAlwaysDelayExactly");
-
-		ChaosMinDelay = delay;
-		ChaosMaxDelay = delay;
-	}
-
-	/// <summary>
-	/// Force chaos exceptions to always be thrown.
-	/// </summary>
-	public virtual void SetAlwaysThrow()
-	{
-		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
-			_logger.Log(LogLevel.Debug, $"FUSION {_className}: SetAlwaysThrow");
-
-		ChaosThrowProbability = 1f;
-	}
-
-	/// <summary>
-	/// Force chaos exceptions to always throw, and chaos delays to always be of exactly this amount.
-	/// </summary>
-	/// <param name="delay">The amount of delay.</param>
-	public virtual void SetAlwaysChaos(TimeSpan delay)
-	{
-		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
-			_logger.Log(LogLevel.Debug, $"FUSION {_className}: SetAlwaysChaos");
-
-		SetAlwaysThrow();
-		SetAlwaysDelayExactly(delay);
-	}
-
-	/// <summary>
-	/// Force chaos exceptions to always throw, and chaos delays to always be between certain amounts.
-	/// </summary>
-	/// <param name="minDelay">The minimum amount of delay.</param>
-	/// <param name="maxDelay">The maximum amount of delay.</param>
-	public virtual void SetAlwaysChaos(TimeSpan minDelay, TimeSpan maxDelay)
-	{
-		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
-			_logger.Log(LogLevel.Debug, $"FUSION {_className}: SetAlwaysChaos");
-
-		SetAlwaysThrow();
-		SetAlwaysDelay(minDelay, maxDelay);
-	}
-
-	/// <summary>
-	/// Force chaos exceptions and delays to never happen.
-	/// </summary>
-	public virtual void SetNeverChaos()
-	{
-		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
-			_logger.Log(LogLevel.Debug, $"FUSION {_className}: SetNeverChaos");
-
-		SetNeverThrow();
-		SetNeverDelay();
-	}
-
-	/// <summary>
-	/// Force chaos delays to never happen.
-	/// </summary>
-	public virtual void SetNeverDelay()
-	{
-		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
-			_logger.Log(LogLevel.Debug, $"FUSION {_className}: SetNeverDelay");
-
-		ChaosMinDelay = TimeSpan.Zero;
-		ChaosMaxDelay = TimeSpan.Zero;
-	}
-
-	/// <summary>
-	/// Force chaos exceptions to never be thrown.
-	/// </summary>
-	public virtual void SetNeverThrow()
-	{
-		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
-			_logger.Log(LogLevel.Debug, $"FUSION {_className}: SetNeverThrow");
-
-		ChaosThrowProbability = 0f;
-	}
-
-	/// <summary>
 	/// Determines if an exception should be thrown.
 	/// </summary>
 	/// <returns><see langword="true"/> if an exception should be thrown, <see langword="false"/> otherwise.</returns>
@@ -169,5 +69,133 @@ public abstract class AbstractChaosComponent
 	protected async Task MaybeChaosAsync(CancellationToken token = default)
 	{
 		await FusionCacheChaosUtils.MaybeChaosAsync(ChaosMinDelay, ChaosMaxDelay, ChaosThrowProbability, token).ConfigureAwait(false);
+	}
+
+	// THROW
+
+	/// <summary>
+	/// Force chaos exceptions to always be thrown.
+	/// </summary>
+	/// <param name="probability">The value for <see cref="ChaosThrowProbability"/>, from 0.0 to 1.0, that represents the probability of throwing an exception: set it to 0.0 to never throw or to 1.0 to always throw.</param>
+	public virtual void SetMaybeThrow(float probability)
+	{
+		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+			_logger.Log(LogLevel.Debug, "FUSION {ClassName}: SetMaybeThrow {Probability}", _className, probability.ToString("0.##"));
+
+		// CLAMP
+		if (probability < 0.0f)
+		{
+			probability = 0.0f;
+		}
+		else if (probability > 1.0f)
+		{
+			probability = 1.0f;
+		}
+
+		ChaosThrowProbability = probability;
+	}
+
+	/// <summary>
+	/// Force chaos exceptions to always be thrown.
+	/// </summary>
+	public virtual void SetAlwaysThrow()
+	{
+		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+			_logger.Log(LogLevel.Debug, "FUSION {ClassName}: SetAlwaysThrow", _className);
+
+		ChaosThrowProbability = 1f;
+	}
+
+	/// <summary>
+	/// Force chaos exceptions to never be thrown.
+	/// </summary>
+	public virtual void SetNeverThrow()
+	{
+		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+			_logger.Log(LogLevel.Debug, "FUSION {ClassName}: SetNeverThrow", _className);
+
+		ChaosThrowProbability = 0f;
+	}
+
+	// DELAY
+
+	/// <summary>
+	/// Force chaos delays to always be of exactly this amount.
+	/// </summary>
+	/// <param name="delay">The amount of delay.</param>
+	public virtual void SetAlwaysDelayExactly(TimeSpan delay)
+	{
+		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+			_logger.Log(LogLevel.Debug, "FUSION {ClassName}: SetAlwaysDelayExactly {Delay}", _className, delay);
+
+		ChaosMinDelay = delay;
+		ChaosMaxDelay = delay;
+	}
+
+	/// <summary>
+	/// Force chaos delays to always be between certain amounts.
+	/// </summary>
+	/// <param name="minDelay">The minimum amount of delay.</param>
+	/// <param name="maxDelay">The maximum amount of delay.</param>
+	public virtual void SetAlwaysDelay(TimeSpan minDelay, TimeSpan maxDelay)
+	{
+		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+			_logger.Log(LogLevel.Debug, "FUSION {ClassName}: SetDelay {MinDelay} {MaxDelay}", _className, minDelay, maxDelay);
+
+		ChaosMinDelay = minDelay;
+		ChaosMaxDelay = maxDelay;
+	}
+
+	/// <summary>
+	/// Force chaos delays to never happen.
+	/// </summary>
+	public virtual void SetNeverDelay()
+	{
+		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+			_logger.Log(LogLevel.Debug, "FUSION {ClassName}: SetNeverDelay", _className);
+
+		ChaosMinDelay = TimeSpan.Zero;
+		ChaosMaxDelay = TimeSpan.Zero;
+	}
+
+	// CHASO (DELAY + THROW)
+
+	/// <summary>
+	/// Force chaos exceptions to always throw, and chaos delays to always be of exactly this amount.
+	/// </summary>
+	/// <param name="delay">The amount of delay.</param>
+	public virtual void SetAlwaysChaos(TimeSpan delay)
+	{
+		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+			_logger.Log(LogLevel.Debug, "FUSION {ClassName}: SetAlwaysChaos {Delay}", _className, delay);
+
+		SetAlwaysThrow();
+		SetAlwaysDelayExactly(delay);
+	}
+
+	/// <summary>
+	/// Force chaos exceptions to always throw, and chaos delays to always be between certain amounts.
+	/// </summary>
+	/// <param name="minDelay">The minimum amount of delay.</param>
+	/// <param name="maxDelay">The maximum amount of delay.</param>
+	public virtual void SetAlwaysChaos(TimeSpan minDelay, TimeSpan maxDelay)
+	{
+		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+			_logger.Log(LogLevel.Debug, "FUSION {ClassName}: SetAlwaysChaos {MinDelay} {MaxDelay}", _className, minDelay, maxDelay);
+
+		SetAlwaysThrow();
+		SetAlwaysDelay(minDelay, maxDelay);
+	}
+
+	/// <summary>
+	/// Force chaos exceptions and delays to never happen.
+	/// </summary>
+	public virtual void SetNeverChaos()
+	{
+		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+			_logger.Log(LogLevel.Debug, "FUSION {ClassName}: SetNeverChaos", _className);
+
+		SetNeverThrow();
+		SetNeverDelay();
 	}
 }

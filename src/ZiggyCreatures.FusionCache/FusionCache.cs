@@ -12,8 +12,10 @@ using ZiggyCreatures.Caching.Fusion.Internals.AutoRecovery;
 using ZiggyCreatures.Caching.Fusion.Internals.Backplane;
 using ZiggyCreatures.Caching.Fusion.Internals.Diagnostics;
 using ZiggyCreatures.Caching.Fusion.Internals.Distributed;
+using ZiggyCreatures.Caching.Fusion.Internals.DistributedLocker;
 using ZiggyCreatures.Caching.Fusion.Internals.Memory;
 using ZiggyCreatures.Caching.Fusion.Locking;
+using ZiggyCreatures.Caching.Fusion.Locking.Distributed;
 using ZiggyCreatures.Caching.Fusion.Plugins;
 using ZiggyCreatures.Caching.Fusion.Serialization;
 
@@ -48,6 +50,9 @@ public sealed partial class FusionCache
 	// BACKPLANE
 	private BackplaneAccessor? _bpa;
 	private readonly object _backplaneLock = new();
+
+	// DISTRIBUTED LOCKER
+	private DistributedLockerAccessor? _dla;
 
 	// AUTO-RECOVERY
 	private AutoRecoveryService? _autoRecovery;
@@ -90,7 +95,10 @@ public sealed partial class FusionCache
 		_options = optionsAccessor.Value;
 
 		if (_options is null)
-			throw new NullReferenceException($"No options have been provided via {nameof(optionsAccessor.Value)}.");
+			throw new InvalidOperationException($"No options have been provided via {nameof(optionsAccessor.Value)}.");
+
+		// VALIDATION
+		_options.Validate();
 
 		// DUPLICATE OPTIONS (TO AVOID EXTERNAL MODIFICATIONS)
 		_options = _options.Duplicate();
@@ -148,7 +156,6 @@ public sealed partial class FusionCache
 		// GLOBALLY UNIQUE INSTANCE ID
 		if (string.IsNullOrWhiteSpace(_options.InstanceId))
 		{
-			//_options.SetInstanceId(Guid.NewGuid().ToString("N"));
 			_options.SetInstanceIdInternal(FusionCacheInternalUtils.GenerateOperationId());
 		}
 		InstanceId = _options.InstanceId!;
@@ -200,16 +207,18 @@ public sealed partial class FusionCache
 		ClearExpireTagCacheKey = GetTagCacheKey(_options.InternalStrings.ClearExpireTag);
 		ClearExpireTagInternalCacheKey = GetTagInternalCacheKey(_options.InternalStrings.ClearExpireTag);
 
-		// CHECK FOR CACHE KEY PREFIX
-		if (memoryCache is not null && CacheName != FusionCacheOptions.DefaultCacheName && string.IsNullOrWhiteSpace(_options.CacheKeyPrefix))
-		{
-			if (_logger?.IsEnabled(_options.MissingCacheKeyPrefixWarningLogLevel) ?? false)
-				_logger.Log(_options.MissingCacheKeyPrefixWarningLogLevel, "FUSION [N={CacheName} I={CacheInstanceId}]: a named cache is being used, and no CacheKeyPrefix has been specified. It's usually better to specify a prefix to automatically avoid cache key collisions. If collisions are already avoided when manually creating the cache keys, you can change the MissingCacheKeyPrefixWarningLogLevel option.", CacheName, InstanceId);
-		}
-
 		// MICRO OPTIMIZATION: WARM UP OBSERVABILITY STUFF
 		_ = Activities.Source;
 		_ = Metrics.Meter;
+
+		if (_options.EnableBestPracticesAdvisor)
+		{
+			_ = Task.Run(async () =>
+			{
+				await Task.Delay(1000).ConfigureAwait(false);
+				RunBestPracticesAdvisor();
+			});
+		}
 	}
 
 	/// <inheritdoc/>
@@ -315,12 +324,6 @@ public sealed partial class FusionCache
 			key = _cacheKeyPrefix + key;
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private string MaybeGenerateOperationId()
-	{
-		return FusionCacheInternalUtils.MaybeGenerateOperationId(_logger);
-	}
-
 	// MEMORY ACCESSOR
 
 	internal MemoryCacheAccessor MemoryCacheAccessor
@@ -379,10 +382,10 @@ public sealed partial class FusionCache
 			var exp = FusionCacheInternalUtils.GetNormalizedAbsoluteExpirationTimestamp(options.FailSafeThrottleDuration, options, false);
 
 			if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
-				_logger?.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): SHIFTING A MEMORY ENTRY FROM {OldExp} TO {NewExp} ({Diff} DIFF)", CacheName, InstanceId, operationId, key, new DateTimeOffset(memoryEntry.LogicalExpirationTimestamp, TimeSpan.Zero), new DateTimeOffset(exp, TimeSpan.Zero), new DateTimeOffset(exp, TimeSpan.Zero) - new DateTimeOffset(memoryEntry.LogicalExpirationTimestamp, TimeSpan.Zero));
+				_logger?.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): shifting a memory entry from {OldExp} to {NewExp} (DIFF: {Diff})", CacheName, InstanceId, operationId, key, new DateTimeOffset(memoryEntry.LogicalExpirationTimestamp, TimeSpan.Zero), new DateTimeOffset(exp, TimeSpan.Zero), new DateTimeOffset(exp, TimeSpan.Zero) - new DateTimeOffset(memoryEntry.LogicalExpirationTimestamp, TimeSpan.Zero));
 
-			memoryEntry.Metadata.IsStale = true;
 			memoryEntry.LogicalExpirationTimestamp = exp;
+			memoryEntry.Metadata.IsStale = true;
 			memoryEntry.Metadata.EagerExpirationTimestamp = null;
 			entry = memoryEntry;
 		}
@@ -412,7 +415,7 @@ public sealed partial class FusionCache
 
 	// BACKGROUND FACTORY COMPLETION
 
-	private void MaybeBackgroundCompleteTimedOutFactory<TValue>(string operationId, string key, FusionCacheFactoryExecutionContext<TValue> ctx, Task<TValue>? factoryTask, FusionCacheEntryOptions options, Activity? activity)
+	private void MaybeBackgroundCompleteFactory<TValue>(string operationId, string key, FusionCacheFactoryExecutionContext<TValue> ctx, Task<TValue>? factoryTask, FusionCacheEntryOptions options, ref object? memoryLockObj, ref object? distributedLockObj, Activity? activity)
 	{
 		if (factoryTask is null)
 		{
@@ -443,61 +446,45 @@ public sealed partial class FusionCache
 		}
 
 		activity?.AddEvent(new ActivityEvent(Activities.EventNames.FactoryBackgroundMove));
-		CompleteBackgroundFactory<TValue>(operationId, key, ctx, factoryTask, options, null, activity);
+		var tmpMemoryLockObj = memoryLockObj;
+		memoryLockObj = null;
+		var tmpDistributedLockObj = distributedLockObj;
+		distributedLockObj = null;
+		BackgroundCompleteFactory<TValue>(operationId, key, ctx, factoryTask, options, tmpMemoryLockObj, tmpDistributedLockObj, activity);
 	}
 
-	private void CompleteBackgroundFactory<TValue>(string operationId, string key, FusionCacheFactoryExecutionContext<TValue> ctx, Task<TValue> factoryTask, FusionCacheEntryOptions options, object? memoryLockObj, Activity? activity)
+	private void BackgroundCompleteFactory<TValue>(string operationId, string key, FusionCacheFactoryExecutionContext<TValue> ctx, Task<TValue> factoryTask, FusionCacheEntryOptions options, object? memoryLockObj, object? distributedLockObj, Activity? activity)
 	{
-		if (factoryTask.IsFaulted || factoryTask.IsCanceled || ctx.HasFailed)
+		_ = Task.Run(async () =>
 		{
 			try
 			{
-				if (_logger?.IsEnabled(_options.FactoryErrorsLogLevel) ?? false)
-					_logger.Log(_options.FactoryErrorsLogLevel, factoryTask.Exception?.GetSingleInnerExceptionOrSelf(), "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): a background factory has thrown an exception", CacheName, InstanceId, operationId, key);
+				// CONTINUE IN THE BACKGROUND TO TRY TO KEEP THE RESULT AS SOON AS IT WILL COMPLETE SUCCESSFULLY
+				if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+					_logger.Log(LogLevel.Debug, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): trying to complete a background factory", CacheName, InstanceId, operationId, key);
 
-				// EVENT
-				_events.OnBackgroundFactoryError(operationId, key);
-			}
-			finally
-			{
-				// MEMORY LOCK
-				if (memoryLockObj is not null)
-					ReleaseMemoryLock(operationId, key, memoryLockObj);
+				var result = await factoryTask.ConfigureAwait(false);
 
-				// ACTIVITY
-				activity?.SetStatus(ActivityStatusCode.Error, factoryTask.Exception?.Message ?? ctx.ErrorMessage ?? "An error occurred while running the factory");
-				if (factoryTask.Exception is not null)
-					activity?.AddException(factoryTask.Exception);
-				activity?.Dispose();
-			}
-
-			return;
-		}
-
-		// CONTINUE IN THE BACKGROUND TO TRY TO KEEP THE RESULT AS SOON AS IT WILL COMPLETE SUCCESSFULLY
-		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
-			_logger.Log(LogLevel.Debug, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): trying to complete a background factory", CacheName, InstanceId, operationId, key);
-
-		_ = factoryTask.ContinueWith(async antecedent =>
-		{
-			try
-			{
-				if (antecedent.Status == TaskStatus.Faulted || antecedent.Status == TaskStatus.Canceled || ctx.HasFailed)
+				if (ctx.HasFailed)
 				{
+					// FAIL
+
+					var errorMessage = ctx.ErrorMessage ?? "An error occurred while executing the background factory";
+
 					if (_logger?.IsEnabled(_options.FactoryErrorsLogLevel) ?? false)
-						_logger.Log(_options.FactoryErrorsLogLevel, antecedent.Exception?.GetSingleInnerExceptionOrSelf(), "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): a background factory thrown an exception", CacheName, InstanceId, operationId, key);
+						_logger.Log(_options.FactoryErrorsLogLevel, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): an error occurred while executing the background factory: {ErrorMessage}", CacheName, InstanceId, operationId, key, errorMessage);
 
 					// ACTIVITY
-					activity?.SetStatus(ActivityStatusCode.Error, factoryTask.Exception?.Message ?? ctx.ErrorMessage ?? "An error occurred while running the factory");
-					if (factoryTask.Exception is not null)
-						activity?.AddException(factoryTask.Exception);
+					activity?.SetStatus(ActivityStatusCode.Error, errorMessage);
 					activity?.Dispose();
 
 					// EVENT
 					_events.OnBackgroundFactoryError(operationId, key);
 				}
-				else if (antecedent.Status == TaskStatus.RanToCompletion)
+				else
 				{
+					// SUCCESS
+
 					if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
 						_logger.Log(LogLevel.Debug, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): a background factory successfully completed, keeping the result", CacheName, InstanceId, operationId, key);
 
@@ -522,17 +509,21 @@ public sealed partial class FusionCache
 					options.ReThrowBackplaneExceptions = false;
 
 					// ADAPTIVE CACHING UPDATE
-					var tmp = antecedent.GetAwaiter().GetResult();
-					var lateEntry = FusionCacheMemoryEntry<TValue>.CreateFromOptions(tmp, GetSerializedValueFromValue(operationId, key, tmp, options), null, ctx.Tags, options, false, ctx.LastModified?.UtcTicks, ctx.ETag);
+					var lateEntry = FusionCacheMemoryEntry<TValue>.CreateFromOptions(result, GetSerializedValueFromValue(operationId, key, result, options), null, ctx.Tags, options, false, ctx.LastModified?.UtcTicks, ctx.ETag);
 
 					if (_mca.ShouldWrite(options))
 					{
 						_mca.SetEntry<TValue>(operationId, key, lateEntry, options);
 					}
 
+					// MEMORY LOCK
+					if (memoryLockObj is not null)
+						memoryLockObj = ReleaseMemoryLock(operationId, key, memoryLockObj);
+
 					if (RequiresDistributedOperations(options))
 					{
-						await DistributedSetEntryAsync<TValue>(operationId, key, lateEntry, options, default).ConfigureAwait(false);
+						await DistributedSetEntryAsync<TValue>(operationId, key, lateEntry, options, distributedLockObj, CancellationToken.None).ConfigureAwait(false);
+						distributedLockObj = null;
 					}
 
 					// EVENT
@@ -540,11 +531,26 @@ public sealed partial class FusionCache
 					_events.OnSet(operationId, key);
 				}
 			}
+			catch (Exception exc)
+			{
+				if (_logger?.IsEnabled(_options.FactoryErrorsLogLevel) ?? false)
+					_logger.Log(_options.FactoryErrorsLogLevel, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): a background factory thrown an exception", CacheName, InstanceId, operationId, key);
+
+				// ACTIVITY
+				activity?.SetStatus(ActivityStatusCode.Error, exc.Message ?? ctx.ErrorMessage ?? "An error occurred while running the factory");
+				activity?.AddException(exc);
+				activity?.Dispose();
+
+				// EVENT
+				_events.OnBackgroundFactoryError(operationId, key);
+			}
 			finally
 			{
-				// MEMORY LOCK
 				if (memoryLockObj is not null)
-					ReleaseMemoryLock(operationId, key, memoryLockObj);
+					memoryLockObj = ReleaseMemoryLock(operationId, key, memoryLockObj);
+
+				if (distributedLockObj is not null)
+					distributedLockObj = await ReleaseDistributedLockAsync(operationId, key, distributedLockObj, options, CancellationToken.None).ConfigureAwait(false);
 			}
 		});
 	}
@@ -554,21 +560,21 @@ public sealed partial class FusionCache
 	private async ValueTask<object?> AcquireMemoryLockAsync(string operationId, string key, TimeSpan timeout, CancellationToken token)
 	{
 		if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
-			_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): waiting to acquire the LOCK", CacheName, InstanceId, operationId, key);
+			_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [ML] waiting to acquire the MEMORY LOCK", CacheName, InstanceId, operationId, key);
 
-		var lockObj = await _memoryLocker.AcquireLockAsync(CacheName, InstanceId, operationId, key, timeout, _logger, token);
+		var lockObj = await _memoryLocker.AcquireLockAsync(CacheName, InstanceId, operationId, key, timeout, _logger, token).ConfigureAwait(false);
 
 		if (lockObj is not null)
 		{
 			// LOCK ACQUIRED
 			if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
-				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): LOCK acquired", CacheName, InstanceId, operationId, key);
+				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [ML] MEMORY LOCK acquired", CacheName, InstanceId, operationId, key);
 		}
 		else
 		{
 			// LOCK TIMEOUT
 			if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
-				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): LOCK timeout", CacheName, InstanceId, operationId, key);
+				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [ML] MEMORY LOCK timeout", CacheName, InstanceId, operationId, key);
 		}
 
 		return lockObj;
@@ -577,7 +583,7 @@ public sealed partial class FusionCache
 	private object? AcquireMemoryLock(string operationId, string key, TimeSpan timeout, CancellationToken token)
 	{
 		if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
-			_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): waiting to acquire the LOCK", CacheName, InstanceId, operationId, key);
+			_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [ML] waiting to acquire the MEMORY LOCK", CacheName, InstanceId, operationId, key);
 
 		var lockObj = _memoryLocker.AcquireLock(CacheName, InstanceId, operationId, key, timeout, _logger, token);
 
@@ -585,38 +591,82 @@ public sealed partial class FusionCache
 		{
 			// LOCK ACQUIRED
 			if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
-				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): LOCK acquired", CacheName, InstanceId, operationId, key);
+				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [ML] MEMORY LOCK acquired", CacheName, InstanceId, operationId, key);
 		}
 		else
 		{
 			// LOCK TIMEOUT
 			if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
-				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): LOCK timeout", CacheName, InstanceId, operationId, key);
+				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [ML] MEMORY LOCK timeout", CacheName, InstanceId, operationId, key);
 		}
 
 		return lockObj;
 	}
 
-	private void ReleaseMemoryLock(string operationId, string key, object? lockObj)
+	private object? ReleaseMemoryLock(string operationId, string key, object? lockObj)
 	{
 		if (lockObj is null)
-			return;
+			return null;
 
 		if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
-			_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): releasing MEMORY LOCK", CacheName, InstanceId, operationId, key);
+			_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [ML] releasing MEMORY LOCK", CacheName, InstanceId, operationId, key);
 
 		try
 		{
 			_memoryLocker.ReleaseLock(CacheName, InstanceId, operationId, key, lockObj, _logger);
 
 			if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
-				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): MEMORY LOCK released", CacheName, InstanceId, operationId, key);
+				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [ML] MEMORY LOCK released", CacheName, InstanceId, operationId, key);
+
+			return null;
 		}
 		catch (Exception exc)
 		{
 			if (_logger?.IsEnabled(LogLevel.Warning) ?? false)
-				_logger.Log(LogLevel.Warning, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): releasing the MEMORY LOCK has thrown an exception", CacheName, InstanceId, operationId, key);
+				_logger.Log(LogLevel.Warning, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [ML] releasing the MEMORY LOCK has thrown an exception", CacheName, InstanceId, operationId, key);
+
+			return lockObj;
 		}
+	}
+
+	// DISTRIBUTED LOCKER
+
+	private async ValueTask<object?> AcquireDistributedLockAsync(string operationId, string key, TimeSpan timeout, FusionCacheEntryOptions options, CancellationToken token)
+	{
+		if (HasDistributedLocker == false)
+			throw new InvalidOperationException("No distributed locker has been configured for this FusionCache instance.");
+
+		return await _dla!.AcquireLockAsync(operationId, key, timeout, options, token).ConfigureAwait(false);
+	}
+
+	private object? AcquireDistributedLock(string operationId, string key, TimeSpan timeout, FusionCacheEntryOptions options, CancellationToken token)
+	{
+		if (HasDistributedLocker == false)
+			throw new InvalidOperationException("No distributed locker has been configured for this FusionCache instance.");
+
+		return _dla!.AcquireLock(operationId, key, timeout, options, token);
+	}
+
+	private async ValueTask<object?> ReleaseDistributedLockAsync(string operationId, string key, object? lockObj, FusionCacheEntryOptions options, CancellationToken token)
+	{
+		if (lockObj is null)
+			return null;
+
+		if (HasDistributedLocker == false)
+			throw new InvalidOperationException("No distributed locker has been configured for this FusionCache instance.");
+
+		return await _dla!.ReleaseDistributedLockAsync(operationId, key, lockObj, options, token).ConfigureAwait(false);
+	}
+
+	private object? ReleaseDistributedLock(string operationId, string key, object? lockObj, FusionCacheEntryOptions options, CancellationToken token)
+	{
+		if (lockObj is null)
+			return null;
+
+		if (HasDistributedLocker == false)
+			throw new InvalidOperationException("No distributed locker has been configured for this FusionCache instance.");
+
+		return _dla!.ReleaseDistributedLock(operationId, key, lockObj, options, token);
 	}
 
 	// FACTORY STUFF
@@ -853,17 +903,6 @@ public sealed partial class FusionCache
 			}
 		}
 
-		// CHECK: WARN THE USER IN CASE OF
-		// - HAS A MEMORY CACHE (ALWAYS)
-		// - HAS A BACKPLANE
-		// - DOES *NOT* HAVE A DISTRIBUTED CACHE
-		// - THE OPTION DefaultEntryOptions.SkipBackplaneNotifications IS FALSE
-		if (HasBackplane && HasDistributedCache == false && DefaultEntryOptions.SkipBackplaneNotifications == false)
-		{
-			if (_logger?.IsEnabled(LogLevel.Error) ?? false)
-				_logger.Log(LogLevel.Error, "FUSION [N={CacheName} I={CacheInstanceId}]: it has been detected a situation where there *IS* a backplane (BACKPLANE={BackplaneType}), there is *NOT* a distributed cache and the DefaultEntryOptions.SkipBackplaneNotifications option is set to false. This will probably cause problems, since a notification will be sent automatically at every change in the cache (Set, Remove, Expire and also GetOrSet when the factory is called) but there is not a distributed cache that different nodes can use, basically resulting in a situation where the cache will keep invalidating itself at every change. It is suggested to either (1) add a distributed cache or (2) change the DefaultEntryOptions.SkipBackplaneNotifications to true.", CacheName, InstanceId, backplane.GetType().FullName);
-		}
-
 		return this;
 	}
 
@@ -878,7 +917,19 @@ public sealed partial class FusionCache
 			{
 				if (_bpa is not null)
 				{
-					_bpa.Unsubscribe();
+
+					if (_options.WaitForInitialBackplaneSubscribe)
+					{
+						_bpa.Unsubscribe();
+					}
+					else
+					{
+						_ = Task.Run(async () =>
+						{
+							await _bpa.UnsubscribeAsync().ConfigureAwait(false);
+						});
+					}
+
 					_bpa = null;
 
 					if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
@@ -900,6 +951,46 @@ public sealed partial class FusionCache
 	public IFusionCacheBackplane? Backplane
 	{
 		get { return _bpa?.Backplane; }
+	}
+
+	// DISTRIBUTED LOCKER
+
+	/// <inheritdoc/>
+	public IFusionCache SetupDistributedLocker(IFusionCacheDistributedLocker distributedLocker)
+	{
+		CheckDisposed();
+
+		if (distributedLocker is null)
+			throw new ArgumentNullException(nameof(distributedLocker));
+
+		if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+			_logger.Log(LogLevel.Debug, "FUSION [N={CacheName} I={CacheInstanceId}]: [DL] setup distributed locker (LOCKER={DistributedLockerType})", CacheName, InstanceId, distributedLocker.GetType().FullName);
+
+		_dla = new DistributedLockerAccessor(distributedLocker, _options, _logger/*, _events.Distributed*/);
+
+		return this;
+	}
+
+	/// <inheritdoc/>
+	public IFusionCache RemoveDistributedLocker()
+	{
+		CheckDisposed();
+
+		if (HasDistributedLocker)
+		{
+			_dla = null;
+
+			if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+				_logger.Log(LogLevel.Debug, "FUSION [N={CacheName} I={CacheInstanceId}]: [DL] distributed locker removed", CacheName, InstanceId);
+		}
+
+		return this;
+	}
+
+	/// <inheritdoc/>
+	public bool HasDistributedLocker
+	{
+		get { return _dla is not null; }
 	}
 
 	// EVENTS
@@ -1021,6 +1112,9 @@ public sealed partial class FusionCache
 			return true;
 
 		if (HasBackplane && options.SkipBackplaneNotifications == false)
+			return true;
+
+		if (HasDistributedLocker && options.SkipDistributedLocker == false)
 			return true;
 
 		return false;
@@ -1161,6 +1255,93 @@ public sealed partial class FusionCache
 		}
 	}
 
+	// BEST PRACTICES ADVISOR
+	private void RunBestPracticesAdvisor()
+	{
+		// CHECK:
+		// - THERE IS A SERIALIZER
+		// - THE SERIALIZER SEEMS TO BE BASED ON System.Text.Json
+		// - A VALUE TUPLE IS NOT DESERIALIZED CORRECTLY
+		if (
+			_serializer is not null
+			&& (_serializer.GetType().FullName?.Contains("SystemTextJson", StringComparison.InvariantCultureIgnoreCase) ?? false)
+			&& _serializer.Deserialize<(int, int)>(_serializer.Serialize((1, 2))) is not (1, 2)
+		)
+		{
+			if (_logger?.IsEnabled(_options.SerializationConfigIssuesLogLevel) ?? false)
+				_logger.Log(_options.SerializationConfigIssuesLogLevel, "FUSION [N={CacheName} I={CacheInstanceId}]: it looks like you are using a serializer based on System.Text.Json not correctly configured to handle value tuples: this may lead to surprises down the road (including data loss when deserializing) so it's better to configure the related JsonSerializerOptions accordingly (see https://github.com/dotnet/runtime/issues/70352). If you prefer to ignore this, you can change the SerializationConfigIssuesLogLevel option.", CacheName, InstanceId);
+		}
+
+		// CHECK:
+		// - IS NOT DEFAULT CACHE
+		// - NO CACHE KEY PREFIX
+		// - AND (
+		//   MEMORY CACHE NOT OWNED
+		//   OR HAS L2
+		// )
+		if (
+			CacheName != FusionCacheOptions.DefaultCacheName
+			&& string.IsNullOrWhiteSpace(_options.CacheKeyPrefix)
+			&& (
+				_mca.IsOwned == false
+				|| HasDistributedCache
+				|| HasDistributedLocker
+			)
+		)
+		{
+			if (_logger?.IsEnabled(_options.MissingCacheKeyPrefixWarningLogLevel) ?? false)
+				_logger.Log(_options.MissingCacheKeyPrefixWarningLogLevel, "FUSION [N={CacheName} I={CacheInstanceId}]: this named cache does not have a CacheKeyPrefix specified, and it's using either a shared memory cache (L1), a distributed cache (L2) or a distributed locker: it is usually better to specify a CacheKeyPrefix to automatically avoid cache key collisions, even more so when using Tagging or the Clear() feature. If collisions are already avoided when manually creating the cache keys, you can change the MissingCacheKeyPrefixWarningLogLevel option.", CacheName, InstanceId);
+		}
+
+		// CHECK:
+		// - HAS BACKPLANE
+		// - AND NO L2
+		// - AND DefaultEntryOptions.SkipBackplaneNotifications IS FALSE
+		if (
+			HasBackplane
+			&& HasDistributedCache == false
+			&& DefaultEntryOptions.SkipBackplaneNotifications == false
+		)
+		{
+			if (_logger?.IsEnabled(LogLevel.Warning) ?? false)
+				_logger.Log(LogLevel.Warning, "FUSION [N={CacheName} I={CacheInstanceId}]: it has been detected a situation where there *IS* a backplane (BACKPLANE={BackplaneType}), there is *NOT* a distributed cache and the DefaultEntryOptions.SkipBackplaneNotifications option is set to false. This will probably cause problems, since a notification will be sent automatically at every change in the cache (Set, Remove, Expire and also GetOrSet when the factory is called) but there is not a distributed cache that different nodes can use, basically resulting in a situation where the cache will keep invalidating itself at every change. It is suggested to either (1) add a distributed cache or (2) change the DefaultEntryOptions.SkipBackplaneNotifications to true.", CacheName, InstanceId, Backplane!.GetType().FullName);
+		}
+
+		// TODO: RE-ENABLE THIS, BUT MAKE IT BETTER/MORE CONFIGURABLE
+		//// CHECK:
+		//// - HAS L2
+		//// - AND NO BACKPLANE
+		//// - AND (
+		////   NO DefaultEntryOptions.MemoryCacheDuration
+		////   OR NO TagsDefaultEntryOptions.MemoryCacheDuration
+		//// )
+		//if (
+		//	HasDistributedCache
+		//	&& HasBackplane == false
+		//	&& (
+		//		_defaultEntryOptions.MemoryCacheDuration is null
+		//		|| _tagsDefaultEntryOptions.MemoryCacheDuration is null
+		//	)
+		//)
+		//{
+		//	if (_logger?.IsEnabled(LogLevel.Warning) ?? false)
+		//		_logger.Log(LogLevel.Warning, "FUSION [N={CacheName} I={CacheInstanceId}]: you are using an L2 (distributed cache) without a backplane, which will potentially leave other nodes' L1s (memory caches) out-of-sync after an update (see: cache coherence). To solve this, you can use a backplane. If that is not possible, you can mitigate the situation by setting both DefaultEntryOptions.MemoryCacheDuration and TagsDefaultEntryOptions.MemoryCacheDuration to a low value: this will refresh data in the L1 from the L2 more frequently, reducing the incoherence window.", CacheName, InstanceId);
+		//}
+
+		// CHECK:
+		// - HAS DISTRIBUTED LOCKER
+		// - AND NO L2
+		if (
+			HasDistributedLocker
+			&& HasDistributedCache == false
+		)
+		{
+			if (_logger?.IsEnabled(LogLevel.Warning) ?? false)
+				_logger.Log(LogLevel.Warning, "FUSION [N={CacheName} I={CacheInstanceId}]: you are using a distributed locker without a distributed cache: this is usually not needed, since distributed locking is mainly useful to coordinate access to a shared resource like a distributed cache.", CacheName, InstanceId);
+		}
+
+	}
+
 	// IDISPOSABLE
 
 	private bool _disposedValue = false;
@@ -1178,6 +1359,7 @@ public sealed partial class FusionCache
 		RemoveAllPlugins();
 		RemoveBackplane();
 		RemoveDistributedCache();
+		RemoveDistributedLocker();
 
 		_autoRecovery?.Dispose();
 		_autoRecovery = null;

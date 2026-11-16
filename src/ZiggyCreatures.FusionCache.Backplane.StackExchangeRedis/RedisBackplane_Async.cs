@@ -8,27 +8,28 @@ public partial class RedisBackplane
 	{
 		token.ThrowIfCancellationRequested();
 
-		if (_connection is not null)
+		if (_muxer is not null)
 			return;
 
-		await _connectionLock.WaitAsync(token).ConfigureAwait(false);
+		await _muxerLock.WaitAsync(token).ConfigureAwait(false);
 		try
 		{
-			if (_connection is not null)
+			if (_muxer is not null)
 				return;
 
 			if (_options.ConnectionMultiplexerFactory is not null)
 			{
-				_connection = await _options.ConnectionMultiplexerFactory().ConfigureAwait(false);
+				_muxer = await _options.ConnectionMultiplexerFactory().ConfigureAwait(false);
+				_shouldDispose = false;
 			}
 			else
 			{
-				_connection = await ConnectionMultiplexer.ConnectAsync(GetConfigurationOptions());
+				_muxer = await ConnectionMultiplexer.ConnectAsync(GetConfigurationOptions()).ConfigureAwait(false);
 			}
 
-			if (_connection is not null)
+			if (_muxer is not null)
 			{
-				_connection.ConnectionRestored += OnReconnect;
+				_muxer.ConnectionRestored += OnReconnect;
 				var tmp = _connectHandlerAsync;
 				if (tmp is not null)
 				{
@@ -38,10 +39,10 @@ public partial class RedisBackplane
 		}
 		finally
 		{
-			_connectionLock.Release();
+			_muxerLock.Release();
 		}
 
-		if (_connection is null)
+		if (_muxer is null)
 			throw new NullReferenceException("A connection to Redis is not available");
 
 		EnsureSubscriber();
@@ -103,15 +104,12 @@ public partial class RedisBackplane
 	/// <inheritdoc/>
 	public async ValueTask UnsubscribeAsync()
 	{
-		_ = Task.Run(() =>
-		{
-			_incomingMessageHandler = null;
-			_incomingMessageHandlerAsync = null;
-			_subscriber?.Unsubscribe(_channel);
-			_subscriptionOptions = null;
+		_incomingMessageHandler = null;
+		_incomingMessageHandlerAsync = null;
+		_subscriber?.Unsubscribe(_channel);
+		_subscriptionOptions = null;
 
-			Disconnect();
-		});
+		Disconnect();
 	}
 
 	/// <inheritdoc/>

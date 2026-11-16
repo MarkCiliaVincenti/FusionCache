@@ -1,27 +1,27 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>netstandard2.0;net8.0;net9.0</TargetFrameworks>
-		<Version>2.4.0</Version>
+		<TargetFrameworks>netstandard2.0;net8.0;net9.0;net10.0</TargetFrameworks>
+		<Version>2.9.0</Version>
 		<PackageId>ZiggyCreatures.FusionCache</PackageId>
 		<Description>FusionCache is an easy to use, fast and robust hybrid cache with advanced resiliency features.</Description>
 		<PackageTags>caching;cache;hybrid;hybrid-cache;hybridcache;multi-level;multilevel;fusion;fusioncache;fusion-cache;performance;async;ziggy</PackageTags>
 		<RootNamespace>ZiggyCreatures.Caching.Fusion</RootNamespace>
 		<GenerateDocumentationFile>True</GenerateDocumentationFile>
 		<PackageReleaseNotes>
-			- Add: new StaleTags property in the factory execution context, to differentiate between stale tags and currently specified tags
-			- Fix: wrongly ignored the currently specified tags when stale tags were present (see above)
-			- Fix: when working with the HybridCache adapter, in some cases the LocalExpiration was ignored
-			- Fix: WithRegisteredSerializer was asking to use the registered distributed cache instead
-			- Fix: InvalidOperationException with Activity (OTEL) when using AlwaysOffSampler
-			- Fix: small fix in xml doc
+			- Change: L2 is now checked during eager refresh
+			- Fix: memory lock not released during eager refresh edge case
+			- Fix: distributed lock not released after successful factory when skipping L1
+			- Fix: better handling of Clear(false) with fail-safe
+			- Perf: allocation-free tags on metrics hot path
 			- Update: package dependencies
 		</PackageReleaseNotes>
-		<!--
-		<EnablePackageValidation>true</EnablePackageValidation>
-		<PackageValidationBaselineVersion>1.0.0</PackageValidationBaselineVersion>
-		-->
+		<!--<EnablePackageValidation>true</EnablePackageValidation>-->
+		<PackageValidationBaselineVersion>2.5.0</PackageValidationBaselineVersion>
 		<IsAotCompatible Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net6.0'))">true</IsAotCompatible>
+		<EnableNETAnalyzers>true</EnableNETAnalyzers>
+		<AnalysisLevel>latest</AnalysisLevel>
+		<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -30,13 +30,13 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.14" />
 	</ItemGroup>
 
 	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-		<PackageReference Include="System.Diagnostics.DiagnosticSource" Version="9.0.0" />
-		<PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.0" />
-		<PackageReference Include="System.Collections.Immutable" Version="9.0.0" />
+		<PackageReference Include="System.Diagnostics.DiagnosticSource" Version="10.0.14" />
+		<PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
+		<PackageReference Include="System.Collections.Immutable" Version="10.0.14" />
 	</ItemGroup>
 
 	<ItemGroup>

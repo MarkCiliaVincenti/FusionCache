@@ -1,0 +1,132 @@
+﻿using Medallion.Threading.Redis;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using StackExchange.Redis;
+using ZiggyCreatures.Caching.Fusion.Locking.Distributed;
+
+namespace ZiggyCreatures.Caching.Fusion.Locking.Distributed.Redis;
+
+/// <summary>
+/// A Redis based implementation of a FusionCache distributed locker.
+/// </summary>
+public partial class RedisDistributedLocker
+	: IFusionCacheDistributedLocker
+	, IDisposable
+{
+	private RedisDistributedLockerOptions _options;
+	private readonly ILogger? _logger;
+
+	private readonly SemaphoreSlim _muxerLock;
+	private IConnectionMultiplexer? _muxer;
+
+	private RedisDistributedSynchronizationProvider? _provider = null;
+
+	/// <summary>
+	/// Initializes a new instance of the RedisDistributedLocker class.
+	/// </summary>
+	/// <param name="optionsAccessor">The set of options to use with this instance of the distributed locker.</param>
+	/// <param name="logger">The <see cref="ILogger{TCategoryName}"/> instance to use. If <see langword="null"/>, logging will be completely disabled.</param>
+	public RedisDistributedLocker(IOptions<RedisDistributedLockerOptions> optionsAccessor, ILogger<RedisDistributedLocker>? logger = null)
+	{
+		if (optionsAccessor is null)
+			throw new ArgumentNullException(nameof(optionsAccessor));
+
+		// OPTIONS
+		_options = optionsAccessor.Value ?? throw new ArgumentNullException(nameof(optionsAccessor.Value));
+
+		// LOGGING
+		if (logger is NullLogger<RedisDistributedLocker>)
+		{
+			// IGNORE NULL LOGGER (FOR BETTER PERF)
+			_logger = null;
+		}
+		else
+		{
+			_logger = logger;
+		}
+
+		_muxerLock = new SemaphoreSlim(initialCount: 1, maxCount: 1);
+
+		EnsureConnection(CancellationToken.None);
+	}
+
+	private ConfigurationOptions GetConfigurationOptions()
+	{
+		if (_options.ConfigurationOptions is not null)
+			return _options.ConfigurationOptions;
+
+		if (string.IsNullOrWhiteSpace(_options.Configuration) == false)
+			return ConfigurationOptions.Parse(_options.Configuration!);
+
+		throw new InvalidOperationException("Unable to connect to Redis: no Configuration nor ConfigurationOptions have been specified");
+	}
+
+	private async ValueTask EnsureConnectionAsync(CancellationToken token)
+	{
+		if (_muxer is not null)
+			return;
+
+		await _muxerLock.WaitAsync(token).ConfigureAwait(false);
+		try
+		{
+			if (_muxer is not null)
+				return;
+
+			if (_options.ConnectionMultiplexerFactory is not null)
+			{
+				_muxer = await _options.ConnectionMultiplexerFactory().ConfigureAwait(false);
+			}
+			else
+			{
+				_muxer = await ConnectionMultiplexer.ConnectAsync(GetConfigurationOptions()).ConfigureAwait(false);
+			}
+
+			if (_muxer is not null)
+			{
+				_provider = new RedisDistributedSynchronizationProvider(_muxer.GetDatabase(), options =>
+				{
+					options.Expiry(_options.AbandonTimeout);
+				});
+			}
+		}
+		catch (Exception exc)
+		{
+			if (_logger?.IsEnabled(LogLevel.Error) ?? false)
+				_logger.Log(LogLevel.Error, exc, "FUSION: [DL] An error occurred while connecting to Redis {Config}", _options.ConfigurationOptions?.ToString() ?? _options.Configuration);
+		}
+		finally
+		{
+			_muxerLock.Release();
+		}
+
+		if (_muxer is null)
+		{
+			_ = Task.Run(async () =>
+			{
+				await EnsureConnectionAsync(CancellationToken.None).ConfigureAwait(false);
+			});
+		}
+	}
+
+	private void EnsureConnection(CancellationToken token)
+	{
+		if (_muxer is not null)
+			return;
+
+		_ = Task.Run(async () =>
+		{
+			await EnsureConnectionAsync(CancellationToken.None).ConfigureAwait(false);
+		});
+	}
+
+	/// <inheritdoc/>
+	public void Dispose()
+	{
+		if (_muxer is not null)
+		{
+			_muxer.Dispose();
+			_muxer = null;
+		}
+	}
+}

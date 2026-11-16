@@ -1,0 +1,104 @@
+﻿using Microsoft.Extensions.Logging;
+
+namespace ZiggyCreatures.Caching.Fusion.Internals.DistributedLocker;
+
+internal partial class DistributedLockerAccessor
+{
+	public async ValueTask<object?> AcquireLockAsync(string operationId, string key, TimeSpan timeout, FusionCacheEntryOptions options, CancellationToken token)
+	{
+		if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
+			_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [DL] waiting to acquire the DISTRIBUTED LOCK", _options.CacheName, _options.InstanceId, operationId, key);
+
+		try
+		{
+			var lockObj = await _locker.AcquireLockAsync(_options.CacheName, _options.InstanceId!, operationId, key, GetLockName(key), timeout, _logger, token).ConfigureAwait(false);
+
+			if (lockObj is not null)
+			{
+				// LOCK ACQUIRED
+				if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
+					_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [DL] DISTRIBUTED LOCK acquired", _options.CacheName, _options.InstanceId, operationId, key);
+			}
+			else
+			{
+				// LOCK TIMEOUT
+				if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
+					_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [DL] DISTRIBUTED LOCK timeout", _options.CacheName, _options.InstanceId, operationId, key);
+			}
+
+			return lockObj;
+		}
+		catch (OperationCanceledException) when (token.IsCancellationRequested)
+		{
+			// CALLER CANCELLATION: the caller's own token was canceled (eg: HttpContext.RequestAborted)
+			// while waiting to acquire the distributed lock. This is not a distributed locker error, so
+			// it must not be logged as one: just let the cancellation flow to the caller, consistently
+			// with how caller cancellation is handled on the factory path.
+			throw;
+		}
+		catch (Exception exc)
+		{
+			if (_logger?.IsEnabled(_options.DistributedLockerErrorsLogLevel) ?? false)
+				_logger.Log(_options.DistributedLockerErrorsLogLevel, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [DL] acquiring the DISTRIBUTED LOCK has thrown an exception", _options.CacheName, _options.InstanceId, operationId, key);
+
+			if (options.ReThrowDistributedLockerExceptions)
+			{
+				if (_options.ReThrowOriginalExceptions)
+				{
+					throw;
+				}
+				else
+				{
+					throw new FusionCacheDistributedLockerException("An error occurred while working with the distributed locker (acquiring)", exc);
+				}
+			}
+
+			return null;
+		}
+	}
+
+	public async ValueTask<object?> ReleaseDistributedLockAsync(string operationId, string key, object? lockObj, FusionCacheEntryOptions options, CancellationToken token)
+	{
+		if (lockObj is null)
+			return null;
+
+		if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
+			_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [DL] releasing DISTRIBUTED LOCK", _options.CacheName, _options.InstanceId, operationId, key);
+
+		try
+		{
+			await _locker.ReleaseLockAsync(_options.CacheName, _options.InstanceId!, operationId, key, GetLockName(key), lockObj, _logger, token).ConfigureAwait(false);
+
+			if (_logger?.IsEnabled(LogLevel.Trace) ?? false)
+				_logger.Log(LogLevel.Trace, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [DL] DISTRIBUTED LOCK released", _options.CacheName, _options.InstanceId, operationId, key);
+
+			return null;
+		}
+		catch (OperationCanceledException exc) when (token.IsCancellationRequested)
+		{
+			if (_logger?.IsEnabled(LogLevel.Debug) ?? false)
+				_logger.Log(LogLevel.Debug, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [DL] canceled DISTRIBUTED LOCK release", _options.CacheName, _options.InstanceId, operationId, key);
+
+			throw;
+		}
+		catch (Exception exc)
+		{
+			if (_logger?.IsEnabled(_options.DistributedLockerErrorsLogLevel) ?? false)
+				_logger.Log(_options.DistributedLockerErrorsLogLevel, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [DL] releasing the DISTRIBUTED LOCK has thrown an exception", _options.CacheName, _options.InstanceId, operationId, key);
+
+			if (options.ReThrowDistributedLockerExceptions)
+			{
+				if (_options.ReThrowOriginalExceptions)
+				{
+					throw;
+				}
+				else
+				{
+					throw new FusionCacheDistributedLockerException("An error occurred while working with the distributed locker (releasing)", exc);
+				}
+			}
+
+			return lockObj;
+		}
+	}
+}

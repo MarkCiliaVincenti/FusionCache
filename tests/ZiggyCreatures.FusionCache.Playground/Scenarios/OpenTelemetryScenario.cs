@@ -45,7 +45,7 @@ public class FusionCacheInstrumentationTracesOptions
 public static class OpenTelemetryScenario
 {
 	private static readonly string ServiceName = "FusionCachePlayground.OpenTelemetryScenario";
-	private static readonly ActivitySource Source = new("FusionCachePlayground.OpenTelemetryScenario");
+	private static readonly ActivitySource Source = new("my-services");
 
 	private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(5);
 	private static readonly TimeSpan FailSafeMaxDuration = TimeSpan.FromSeconds(30);
@@ -55,32 +55,9 @@ public static class OpenTelemetryScenario
 	private static readonly bool UseDistributedCache = true;
 	private static readonly bool UseBackplane = true;
 
-	private static void SetupOtlp(IServiceCollection services)
-	{
-		services.AddOpenTelemetry().WithTracing(builder =>
-		{
-			builder
-				//.AddAspNetCoreInstrumentation()
-				//.AddHttpClientInstrumentation()
-				//.AddSource(nameof(OtlpScenario))
-				.AddSource("ZiggyCreatures.Caching.Fusion")
-				//.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("ZiggyCreatures.Caching.Fusion"))
-				.AddConsoleExporter()
-			//.AddOtlpExporter(o =>
-			//{
-			//	o.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
-			//	o.Endpoint = new Uri($"http://localhost:4317");
-			//})
-			;
-		});
-	}
-
-	private static readonly ActivitySource Activity = new(nameof(OpenTelemetryScenario));
-
 	public static async Task RunAsync()
 	{
 		Console.Title = "FusionCache - OpenTelemetry";
-
 		Console.OutputEncoding = Encoding.UTF8;
 
 		// SETUP TRACES
@@ -92,7 +69,7 @@ public static class OpenTelemetryScenario
 					serviceInstanceId: Environment.MachineName
 				)
 			)
-			.AddSource("FusionCachePlayground.OpenTelemetryScenario")
+			.AddSource(Source.Name)
 
 			.AddFusionCacheInstrumentation(options =>
 			{

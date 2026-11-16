@@ -32,23 +32,40 @@ Curious about what you can achieve from start to finish? There's a [👩‍🏫 
 
 In search of all the docs? There's a [page](https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/README.md) for that, too.
 
-## 📺 Media
+## 🧑‍🏫 Courses ([more](https://dometrain.com/course/getting-started-caching-in-dotnet/?ref=jody-donetti) and [more](https://dometrain.com/course/deep-dive-caching-in-dotnet/?ref=jody-donetti))
 
-More into videos?
+If you are interested in all things caching, I published 2 courses on Dometrain: Caching in .NET, [Getting Started](https://dometrain.com/course/getting-started-caching-in-dotnet/?ref=jody-donetti) & [Deep Dive](https://dometrain.com/course/deep-dive-caching-in-dotnet/?ref=jody-donetti).
 
-I've been lucky enough to be invited on some shows and podcasts here and there: you can find them in the [Media](https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Media.md) section.
+[![Caching Course on Dometrain](https://raw.githubusercontent.com/ZiggyCreatures/FusionCache/main/docs/images/dometrain-getting-started-cover.png)](https://dometrain.com/course/getting-started-caching-in-dotnet/?ref=jody-donetti)
+
+[![Caching Course on Dometrain](https://raw.githubusercontent.com/ZiggyCreatures/FusionCache/main/docs/images/dometrain-deep-dive-cover.png)](https://dometrain.com/course/deep-dive-caching-in-dotnet/?ref=jody-donetti)
+
+If you like the FusionCache docs, you may like it too.
+
+But mind you, it's not just about FusionCache but about caching as a whole: we'll go from the very foundations to pretty advanced topics and scenarios. We'll cover performance, robustness, resiliency and we'll see different real-world problems and, most importantly, solutions for them.
+
+I tried condensing 20+ years dealing with caching in one place, all in an approachable way.
+
+One journey, two chapters, filled with everything you can ask for about caching.
+
+## 📺 Talks ([more](https://github.com/jodydonetti/talks))
+
+Are you more into videos?
+
+Along the years I've been lucky enough to be invited to some conferences, shows or podcasts both online and around the world, of course to talk about all things caching and FusionCache.
 
 A good example is when the fine folks at [On .NET](https://learn.microsoft.com/en-us/shows/on-net/) invited me on the show to allow me to mumbling random caching stuff.
 
-[![On .NET Talk](https://raw.githubusercontent.com/ZiggyCreatures/FusionCache/main/docs/images/talks/on-dotnet.jpg)](https://www.youtube.com/watch?v=hCswI2goi7s)
+[![On .NET Talk](https://raw.githubusercontent.com/ZiggyCreatures/FusionCache/main/docs/images/talks/on-dotnet-small.jpg)](https://github.com/jodydonetti/talks)
 
+You can find most of them, sometimes with the related slides, in the dedicated repo [here](https://github.com/jodydonetti/talks).
 
 ## ✔ Features
 
 FusionCache has a lot of features, let's see them grouped together:
 
 #### Resiliency
-- [**🛡️ Cache Stampede**](https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheStampede.md): automatic protection from the Cache Stampede problem
+- [**🛡️ Cache Stampede**](https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheStampede.md): automatic protection, both local (single node) and distributed (multiple nodes)
 - [**💣 Fail-Safe**](https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/FailSafe.md): a mechanism to avoids transient failures, by reusing an expired entry as a temporary fallback
 - [**↩️ Auto-Recovery**](https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/AutoRecovery.md): self-healing for the entire cache, all automatically
 
@@ -154,7 +171,7 @@ Yes!
 
 FusionCache is being used **in production** on **real world projects** for years, happily handling billions of requests.
 
-Considering that the FusionCache packages have been downloaded more than **15 million times** (thanks everybody!) it may very well be used even more.
+Considering that the FusionCache packages have been downloaded more than **100M times** (thanks everyone!) it may very well be used even more.
 
 Oh, and it is being used in products by Microsoft itself, like [Data API Builder](https://devblogs.microsoft.com/azure-sql/data-api-builder-ga/)!
 

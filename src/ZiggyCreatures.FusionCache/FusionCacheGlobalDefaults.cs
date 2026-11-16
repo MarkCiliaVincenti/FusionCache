@@ -51,6 +51,11 @@ public static class FusionCacheGlobalDefaults
 	public static bool EntryOptionsAllowTimedOutFactoryBackgroundCompletion { get; set; } = true;
 
 	/// <summary>
+	/// The global default <see cref="FusionCacheEntryOptions.MemoryCacheDuration"/>.
+	/// </summary>
+	public static TimeSpan? EntryOptionsMemoryCacheDuration { get; set; } = null;
+
+	/// <summary>
 	/// The global default <see cref="FusionCacheEntryOptions.DistributedCacheDuration"/>.
 	/// </summary>
 	public static TimeSpan? EntryOptionsDistributedCacheDuration { get; set; } = null;
@@ -162,4 +167,14 @@ public static class FusionCacheGlobalDefaults
 	/// The global default <see cref="FusionCacheEntryOptions.EnableAutoClone"/>.
 	/// </summary>
 	public static bool EntryOptionsEnableAutoClone { get; set; } = false;
+
+	/// <summary>
+	/// The global default <see cref="FusionCacheEntryOptions.ReThrowDistributedLockerExceptions"/>.
+	/// </summary>
+	public static bool EntryOptionsReThrowDistributedLockerExceptions { get; set; } = false;
+
+	/// <summary>
+	/// The global default <see cref="FusionCacheEntryOptions.SkipDistributedLocker"/>.
+	/// </summary>
+	public static bool EntryOptionsSkipDistributedLocker { get; set; } = false;
 }

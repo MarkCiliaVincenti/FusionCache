@@ -52,7 +52,7 @@ internal sealed class MemoryCacheAccessor
 			return;
 
 		// IF FAIL-SAFE IS DISABLED AND DURATION IS <= ZERO -> REMOVE ENTRY (WILL SAVE RESOURCES)
-		if (options.IsFailSafeEnabled == false && options.Duration <= TimeSpan.Zero)
+		if (options.IsFailSafeEnabled == false && options.MemoryCacheDuration.GetValueOrDefault(options.Duration) <= TimeSpan.Zero)
 		{
 			RemoveEntry(operationId, key);
 			return;
@@ -86,8 +86,14 @@ internal sealed class MemoryCacheAccessor
 		}
 		catch (Exception exc)
 		{
+			// LOGGING
+			if (_logger?.IsEnabled(LogLevel.Error) ?? false)
+				_logger.Log(LogLevel.Error, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [MC] an error occurred while saving an entry in the memory cache", _options.CacheName, _options.InstanceId, operationId, key);
+
+			// ACTIVITY
 			activity?.SetStatus(ActivityStatusCode.Error, exc.Message);
 			activity?.AddException(exc);
+
 			throw;
 		}
 	}
@@ -118,6 +124,7 @@ internal sealed class MemoryCacheAccessor
 		}
 		catch (Exception exc)
 		{
+			// ACTIVITY
 			activity?.SetStatus(ActivityStatusCode.Error, exc.Message);
 			activity?.AddException(exc);
 			throw;
@@ -175,6 +182,7 @@ internal sealed class MemoryCacheAccessor
 		}
 		catch (Exception exc)
 		{
+			// ACTIVITY
 			activity?.SetStatus(ActivityStatusCode.Error, exc.Message);
 			activity?.AddException(exc);
 			throw;
@@ -198,8 +206,10 @@ internal sealed class MemoryCacheAccessor
 		}
 		catch (Exception exc)
 		{
+			// ACTIVITY
 			activity?.SetStatus(ActivityStatusCode.Error, exc.Message);
 			activity?.AddException(exc);
+
 			throw;
 		}
 	}
@@ -236,6 +246,7 @@ internal sealed class MemoryCacheAccessor
 				_logger.Log(LogLevel.Debug, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): [MC] expiring memory entry", _options.CacheName, _options.InstanceId, operationId, key);
 
 			// MAKE THE ENTRY LOGICALLY EXPIRE
+			entry.Touch();
 			entry.LogicalExpirationTimestamp = 0L;
 			if (entry.Metadata is not null)
 			{
@@ -250,6 +261,7 @@ internal sealed class MemoryCacheAccessor
 		}
 		catch (Exception exc)
 		{
+			// ACTIVITY
 			activity?.SetStatus(ActivityStatusCode.Error, exc.Message);
 			activity?.AddException(exc);
 			throw;
@@ -259,6 +271,11 @@ internal sealed class MemoryCacheAccessor
 	public bool CanClear
 	{
 		get { return _cacheCanClear; }
+	}
+
+	public bool IsOwned
+	{
+		get { return _cacheIsOwned; }
 	}
 
 	public bool TryClear()
@@ -272,27 +289,19 @@ internal sealed class MemoryCacheAccessor
 
 	// IDISPOSABLE
 	private bool _disposedValue = false;
-	private void Dispose(bool disposing)
-	{
-		if (!_disposedValue)
-		{
-			if (disposing)
-			{
-				if (_cacheIsOwned)
-				{
-					(_cache as MemoryCache)?.Compact(1);
-					_cache.Dispose();
-				}
-			}
-#pragma warning disable CS8625 // Cannot convert null literal to non-nullable reference type.
-			_cache = null;
-#pragma warning restore CS8625 // Cannot convert null literal to non-nullable reference type.
-			_disposedValue = true;
-		}
-	}
 
 	public void Dispose()
 	{
-		Dispose(true);
+		if (_disposedValue)
+			return;
+
+		if (_cacheIsOwned)
+		{
+			TryClear();
+			_cache.Dispose();
+		}
+		_cache = null!;
+
+		_disposedValue = true;
 	}
 }

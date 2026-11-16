@@ -39,6 +39,8 @@ public sealed class FusionCacheEntryOptions
 		FailSafeMaxDuration = FusionCacheGlobalDefaults.EntryOptionsFailSafeMaxDuration;
 		FailSafeThrottleDuration = FusionCacheGlobalDefaults.EntryOptionsFailSafeThrottleDuration;
 
+		MemoryCacheDuration = FusionCacheGlobalDefaults.EntryOptionsMemoryCacheDuration;
+
 		DistributedCacheDuration = FusionCacheGlobalDefaults.EntryOptionsDistributedCacheDuration;
 		DistributedCacheFailSafeMaxDuration = FusionCacheGlobalDefaults.EntryOptionsDistributedCacheFailSafeMaxDuration;
 		DistributedCacheSoftTimeout = FusionCacheGlobalDefaults.EntryOptionsDistributedCacheSoftTimeout;
@@ -57,6 +59,9 @@ public sealed class FusionCacheEntryOptions
 
 		SkipMemoryCacheRead = FusionCacheGlobalDefaults.EntryOptionsSkipMemoryCacheRead;
 		SkipMemoryCacheWrite = FusionCacheGlobalDefaults.EntryOptionsSkipMemoryCacheWrite;
+
+		ReThrowDistributedLockerExceptions = FusionCacheGlobalDefaults.EntryOptionsReThrowDistributedLockerExceptions;
+		SkipDistributedLocker = FusionCacheGlobalDefaults.EntryOptionsSkipDistributedLocker;
 	}
 
 	/// <summary>
@@ -113,6 +118,28 @@ public sealed class FusionCacheEntryOptions
 	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
 	/// </summary>
 	public TimeSpan LockTimeout { get; set; }
+
+	/// <summary>
+	/// The timeout to apply when trying to acquire a memory lock during a factory execution.
+	/// <br/>
+	/// If not specified, <see cref="LockTimeout"/> will be used.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheStampede.md"/>
+	/// <br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	public TimeSpan? MemoryLockTimeout { get; set; }
+
+	/// <summary>
+	/// The timeout to apply when trying to acquire a distributed lock during a factory execution.
+	/// <br/>
+	/// If not specified, <see cref="LockTimeout"/> will be used.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheStampede.md"/>
+	/// <br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	public TimeSpan? DistributedLockTimeout { get; set; }
 
 	/// <summary>
 	/// The maximum amount of extra duration to add to the normal <see cref="Duration"/> in a randomized way, to allow for more variable expirations.
@@ -212,7 +239,18 @@ public sealed class FusionCacheEntryOptions
 	public bool AllowTimedOutFactoryBackgroundCompletion { get; set; }
 
 	/// <summary>
-	/// The duration specific for the distributed cache, if any. If not set, <see cref="Duration"/> will be used.
+	/// The duration specific for the memory cache.
+	/// <br/>
+	/// If not set, <see cref="Duration"/> will be used.
+	/// <br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	public TimeSpan? MemoryCacheDuration { get; set; }
+
+	/// <summary>
+	/// The duration specific for the distributed cache.
+	/// <br/>
+	/// If not set, <see cref="Duration"/> will be used.
 	/// <br/><br/>
 	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheLevels.md"/>
 	/// <br/>
@@ -451,12 +489,31 @@ public sealed class FusionCacheEntryOptions
 	/// </summary>
 	public bool EnableAutoClone { get; set; }
 
+	/// <summary>
+	///	Set this to <see langword="true"/> to allow the bubble up of distributed locker exceptions (default is <see langword="false"/>).
+	///	Please note that, even if set to <see langword="true"/>, in some cases you would also need <see cref="AllowBackgroundDistributedCacheOperations"/> set to <see langword="false"/> and no timeout (neither soft nor hard) specified.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheStampede.md"/>
+	/// <br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	public bool ReThrowDistributedLockerExceptions { get; set; }
+
+	/// <summary>
+	/// Gets or sets a value indicating whether to bypass the distributed lock mechanism during the operation.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheStampede.md"/>
+	/// <br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	public bool SkipDistributedLocker { get; set; }
+
 	internal bool IsSafeForAdaptiveCaching { get; set; }
 
 	/// <inheritdoc/>
 	public override string ToString()
 	{
-		return $"[DUR={Duration.ToLogString()} LKTO={LockTimeout.ToLogString_Timeout()} SKMR={SkipMemoryCacheRead.ToLogStringYN()} SKMW={SkipMemoryCacheWrite.ToLogStringYN()} SKDR={SkipDistributedCacheRead.ToLogStringYN()} SKDW={SkipDistributedCacheWrite.ToLogStringYN()} SKDRWS={SkipDistributedCacheReadWhenStale.ToLogStringYN()} DDUR={DistributedCacheDuration.ToLogString()} JIT={JitterMaxDuration.ToLogString()} PR={Priority.ToLogString()} SZ={Size.ToLogString()} FS={IsFailSafeEnabled.ToLogStringYN()} FSMAX={FailSafeMaxDuration.ToLogString()} DFSMAX={DistributedCacheFailSafeMaxDuration.ToLogString()} FSTHR={FailSafeThrottleDuration.ToLogString()} FSTO={FactorySoftTimeout.ToLogString_Timeout()} FHTO={FactoryHardTimeout.ToLogString_Timeout()} TOFC={AllowTimedOutFactoryBackgroundCompletion.ToLogStringYN()} DSTO={DistributedCacheSoftTimeout.ToLogString_Timeout()} DHTO={DistributedCacheHardTimeout.ToLogString_Timeout()} ABDO={AllowBackgroundDistributedCacheOperations.ToLogStringYN()} SBN={SkipBackplaneNotifications.ToLogStringYN()} ABBO={AllowBackgroundBackplaneOperations.ToLogStringYN()} AC={EnableAutoClone.ToLogStringYN()}]";
+		return $"[DUR={Duration.ToLogString()} LKTO={LockTimeout.ToLogString_Timeout()} SKMR={SkipMemoryCacheRead.ToLogStringYN()} SKMW={SkipMemoryCacheWrite.ToLogStringYN()} SKDR={SkipDistributedCacheRead.ToLogStringYN()} SKDW={SkipDistributedCacheWrite.ToLogStringYN()} SKDRWS={SkipDistributedCacheReadWhenStale.ToLogStringYN()} MDUR={MemoryCacheDuration.ToLogString()} DDUR={DistributedCacheDuration.ToLogString()} JIT={JitterMaxDuration.ToLogString()} PR={Priority.ToLogString()} SZ={Size.ToLogString()} FS={IsFailSafeEnabled.ToLogStringYN()} FSMAX={FailSafeMaxDuration.ToLogString()} DFSMAX={DistributedCacheFailSafeMaxDuration.ToLogString()} FSTHR={FailSafeThrottleDuration.ToLogString()} FSTO={FactorySoftTimeout.ToLogString_Timeout()} FHTO={FactoryHardTimeout.ToLogString_Timeout()} TOFC={AllowTimedOutFactoryBackgroundCompletion.ToLogStringYN()} DSTO={DistributedCacheSoftTimeout.ToLogString_Timeout()} DHTO={DistributedCacheHardTimeout.ToLogString_Timeout()} ABDO={AllowBackgroundDistributedCacheOperations.ToLogStringYN()} SBN={SkipBackplaneNotifications.ToLogStringYN()} ABBO={AllowBackgroundBackplaneOperations.ToLogStringYN()} AC={EnableAutoClone.ToLogStringYN()}]";
 	}
 
 	/// <summary>
@@ -528,6 +585,19 @@ public sealed class FusionCacheEntryOptions
 	public FusionCacheEntryOptions SetDurationInfinite()
 	{
 		Duration = TimeSpan.MaxValue;
+		return this;
+	}
+
+	/// <summary>
+	/// Set the <see cref="MemoryCacheDuration"/> to the specified <see cref="TimeSpan"/> value.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	/// <param name="duration">The duration to set.</param>
+	/// <returns>The <see cref="FusionCacheEntryOptions"/> so that additional calls can be chained.</returns>
+	public FusionCacheEntryOptions SetMemoryCacheDuration(TimeSpan? duration)
+	{
+		MemoryCacheDuration = duration;
 		return this;
 	}
 
@@ -896,6 +966,37 @@ public sealed class FusionCacheEntryOptions
 		return this;
 	}
 
+
+	/// <summary>
+	/// Set the <see cref="SkipDistributedLocker"/> option.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheStampede.md"/>
+	/// <br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	/// <param name="skip">The value for the <see cref="SkipDistributedLocker"/> option.</param>
+	/// <returns>The <see cref="FusionCacheEntryOptions"/> so that additional calls can be chained.</returns>
+	public FusionCacheEntryOptions SetSkipDistributedLocker(bool skip = true)
+	{
+		SkipDistributedLocker = skip;
+		return this;
+	}
+
+	/// <summary>
+	/// Set the distributed lock timeout.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/CacheStampede.md"/>
+	/// <br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	/// <param name="timeout">The value for the <see cref="DistributedLockTimeout"/> option.</param>
+	/// <returns>The <see cref="FusionCacheEntryOptions"/> so that additional calls can be chained.</returns>
+	public FusionCacheEntryOptions SetDistributedLockTimeout(TimeSpan timeout)
+	{
+		DistributedLockTimeout = timeout;
+		return this;
+	}
+
 	/// <summary>
 	/// Set the <see cref="EnableAutoClone"/> option.
 	/// <br/><br/>
@@ -914,19 +1015,22 @@ public sealed class FusionCacheEntryOptions
 	internal DateTimeOffset GetMemoryAbsoluteExpiration(out bool incoherentFailSafeMaxDuration)
 	{
 		// PHYSICAL DURATION
+		TimeSpan durationToUse;
 		TimeSpan physicalDuration;
+
+		durationToUse = MemoryCacheDuration ?? Duration;
 
 		if (IsFailSafeEnabled == false)
 		{
-			physicalDuration = Duration;
+			physicalDuration = durationToUse;
 			incoherentFailSafeMaxDuration = false;
 		}
 		else
 		{
-			if (FailSafeMaxDuration < Duration)
+			if (FailSafeMaxDuration < durationToUse)
 			{
 				incoherentFailSafeMaxDuration = true;
-				physicalDuration = Duration;
+				physicalDuration = durationToUse;
 			}
 			else
 			{
@@ -950,7 +1054,7 @@ public sealed class FusionCacheEntryOptions
 		if (incoherentFailSafeMaxDuration)
 		{
 			if (logger?.IsEnabled(options.IncoherentOptionsNormalizationLogLevel) ?? false)
-				logger.Log(options.IncoherentOptionsNormalizationLogLevel, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): FailSafeMaxDuration {FailSafeMaxDuration} was lower than the Duration {Duration} on {Options}. Duration has been used instead.", options.CacheName, options.InstanceId, operationId, key, FailSafeMaxDuration.ToLogString(), Duration.ToLogString(), this.ToLogString());
+				logger.Log(options.IncoherentOptionsNormalizationLogLevel, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): FailSafeMaxDuration {FailSafeMaxDuration} was lower than the MemoryCacheDuration/Duration {Duration} on {Options}. Duration has been used instead.", options.CacheName, options.InstanceId, operationId, key, FailSafeMaxDuration.ToLogString(), MemoryCacheDuration.GetValueOrDefault(Duration).ToLogString(), this.ToLogString());
 		}
 
 		if (size is null && priority.GetValueOrDefault(FusionCacheInternalUtils.CacheItemPriority_DefaultValue) == FusionCacheInternalUtils.CacheItemPriority_DefaultValue && events.HasEvictionSubscribers() == false)
@@ -985,8 +1089,8 @@ public sealed class FusionCacheEntryOptions
 		var res = new DistributedCacheEntryOptions();
 
 		// PHYSICAL DURATION
-		TimeSpan physicalDuration;
 		TimeSpan durationToUse;
+		TimeSpan physicalDuration;
 
 		durationToUse = DistributedCacheDuration ?? Duration;
 
@@ -1026,7 +1130,7 @@ public sealed class FusionCacheEntryOptions
 			return Timeout.InfiniteTimeSpan;
 		}
 
-		var res = LockTimeout;
+		var res = MemoryLockTimeout.GetValueOrDefault(LockTimeout);
 		if (res == Timeout.InfiniteTimeSpan && hasFallbackValue && IsFailSafeEnabled && FactorySoftTimeout != Timeout.InfiniteTimeSpan)
 		{
 			// IF THERE IS NO SPECIFIC MEMORY LOCK TIMEOUT
@@ -1036,6 +1140,30 @@ public sealed class FusionCacheEntryOptions
 			// --> USE IT AS A MEMORY LOCK TIMEOUT
 			res = FactorySoftTimeout;
 		}
+
+		return res;
+	}
+
+	internal TimeSpan GetAppropriateDistributedLockTimeout(FusionCacheOptions options, bool hasFallbackValue)
+	{
+		// EARLY RETURN: IGNORE TIMEOUTS WHEN DEBUGGING
+		if (options.IgnoreTimeoutsWhenDebugging && Debugger.IsAttached)
+		{
+			return Timeout.InfiniteTimeSpan;
+		}
+
+		var res = DistributedLockTimeout.GetValueOrDefault(LockTimeout);
+
+		// TODO: CHECK AGAIN THIS, NOT SO SURE...
+		//if (res == Timeout.InfiniteTimeSpan && hasFallbackValue && IsFailSafeEnabled && FactorySoftTimeout != Timeout.InfiniteTimeSpan)
+		//{
+		//	// IF THERE IS NO SPECIFIC DISTRIBUTED OR MEMORY LOCK TIMEOUT
+		//	// + THERE IS A FALLBACK ENTRY
+		//	// + FAIL-SAFE IS ENABLED
+		//	// + THERE IS A FACTORY SOFT TIMEOUT
+		//	// --> USE IT AS A MEMORY LOCK TIMEOUT
+		//	res = FactorySoftTimeout;
+		//}
 
 		return res;
 	}
@@ -1095,21 +1223,36 @@ public sealed class FusionCacheEntryOptions
 	}
 
 	/// <summary>
+	/// Validates the options, both individually and in combination with each other.
+	/// <br/><br/>
+	/// <strong>DOCS:</strong> <see href="https://github.com/ZiggyCreatures/FusionCache/blob/main/docs/Options.md"/>
+	/// </summary>
+	internal void Validate()
+	{
+		// EMPTY (FOR NOW)
+	}
+
+	/// <summary>
 	/// Creates a new <see cref="FusionCacheEntryOptions"/> object by duplicating all the options of the current one.
 	/// </summary>
 	/// <param name="duration">A custom <see cref="Duration"/> that, if specified, will overwrite the current one.</param>
 	/// <returns>The newly created <see cref="FusionCacheEntryOptions"/> object.</returns>
 	public FusionCacheEntryOptions Duplicate(TimeSpan? duration = null)
 	{
+		Validate();
+
 		return new FusionCacheEntryOptions()
 		{
 			IsSafeForAdaptiveCaching = IsSafeForAdaptiveCaching,
 
 			Duration = duration ?? Duration,
-			LockTimeout = LockTimeout,
 			Size = Size,
 			Priority = Priority,
 			JitterMaxDuration = JitterMaxDuration,
+
+			LockTimeout = LockTimeout,
+			MemoryLockTimeout = MemoryLockTimeout,
+			DistributedLockTimeout = DistributedLockTimeout,
 
 			EagerRefreshThreshold = EagerRefreshThreshold,
 
@@ -1123,6 +1266,8 @@ public sealed class FusionCacheEntryOptions
 			FactoryHardTimeout = FactoryHardTimeout,
 			AllowTimedOutFactoryBackgroundCompletion = AllowTimedOutFactoryBackgroundCompletion,
 
+			MemoryCacheDuration = MemoryCacheDuration,
+
 			DistributedCacheDuration = DistributedCacheDuration,
 			DistributedCacheFailSafeMaxDuration = DistributedCacheFailSafeMaxDuration,
 			DistributedCacheSoftTimeout = DistributedCacheSoftTimeout,
@@ -1131,6 +1276,7 @@ public sealed class FusionCacheEntryOptions
 			ReThrowDistributedCacheExceptions = ReThrowDistributedCacheExceptions,
 			ReThrowSerializationExceptions = ReThrowSerializationExceptions,
 			ReThrowBackplaneExceptions = ReThrowBackplaneExceptions,
+			ReThrowDistributedLockerExceptions = ReThrowDistributedLockerExceptions,
 
 			AllowBackgroundDistributedCacheOperations = AllowBackgroundDistributedCacheOperations,
 			AllowBackgroundBackplaneOperations = AllowBackgroundBackplaneOperations,
@@ -1140,6 +1286,7 @@ public sealed class FusionCacheEntryOptions
 			SkipDistributedCacheRead = SkipDistributedCacheRead,
 			SkipDistributedCacheWrite = SkipDistributedCacheWrite,
 			SkipDistributedCacheReadWhenStale = SkipDistributedCacheReadWhenStale,
+			SkipDistributedLocker = SkipDistributedLocker,
 
 			SkipMemoryCacheRead = SkipMemoryCacheRead,
 			SkipMemoryCacheWrite = SkipMemoryCacheWrite,

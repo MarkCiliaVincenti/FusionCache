@@ -10,4 +10,4 @@ Find out [more](https://github.com/ZiggyCreatures/FusionCache).
 
 ## 📦 This package
 
-⚠️ IMPORTANT: this package has been deprecated since the related code has been moved into the main FusionCache package.
+This package is a distributed locker implementation for [Redis](https://redis.io/), currently based on the awesome [DistributedLock](https://github.com/madelson/DistributedLock) library.

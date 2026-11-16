@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ZiggyCreatures.Caching.Fusion.Backplane;
 using ZiggyCreatures.Caching.Fusion.Locking;
+using ZiggyCreatures.Caching.Fusion.Locking.Distributed;
 using ZiggyCreatures.Caching.Fusion.NullObjects;
 using ZiggyCreatures.Caching.Fusion.Plugins;
 using ZiggyCreatures.Caching.Fusion.Serialization;
@@ -53,6 +54,7 @@ internal sealed class FusionCacheBuilder
 	public bool AddCacheKeyPrefixSeparator { get; set; }
 	public string? CacheKeyPrefix { get; set; }
 	public Action<FusionCacheOptions>? SetupOptionsAction { get; set; }
+	public Action<IServiceProvider, FusionCacheOptions>? SetupOptionsActionAdvanced { get; set; }
 
 	public FusionCacheEntryOptions? DefaultEntryOptions { get; set; }
 	public Action<FusionCacheEntryOptions>? SetupDefaultEntryOptionsAction { get; set; }
@@ -68,6 +70,12 @@ internal sealed class FusionCacheBuilder
 	public IFusionCacheMemoryLocker? MemoryLocker { get; set; }
 	public Func<IServiceProvider, IFusionCacheMemoryLocker>? MemoryLockerFactory { get; set; }
 	public bool ThrowIfMissingMemoryLocker { get; set; }
+
+	public bool UseRegisteredDistributedLocker { get; set; }
+	public object? DistributedLockerServiceKey { get; set; }
+	public IFusionCacheDistributedLocker? DistributedLocker { get; set; }
+	public Func<IServiceProvider, IFusionCacheDistributedLocker>? DistributedLockerFactory { get; set; }
+	public bool ThrowIfMissingDistributedLocker { get; set; }
 
 	public bool UseRegisteredSerializer { get; set; }
 	public object? SerializerServiceKey { get; set; }
@@ -136,7 +144,10 @@ internal sealed class FusionCacheBuilder
 			}
 		}
 
+		// FOR BACKWARD COMPATIBILITY
 		SetupOptionsAction?.Invoke(options);
+		// THE NEW ONE
+		SetupOptionsActionAdvanced?.Invoke(serviceProvider, options);
 
 		// CACHE KEY PREFIX
 		if (UseCacheKeyPrefix)
@@ -195,6 +206,10 @@ internal sealed class FusionCacheBuilder
 		{
 			throw new InvalidOperationException("A logger has not been specified, or found in the DI container.");
 		}
+
+		// CHECK DI REGISTRATIONS
+		var validator = serviceProvider.GetService<FusionCacheDependencyInjectionValidator>();
+		validator?.CheckInvalidRegistrations(Services, serviceProvider, logger);
 
 		// MEMORY CACHE
 		IMemoryCache? memoryCache;
@@ -301,8 +316,42 @@ internal sealed class FusionCacheBuilder
 			cache.SetupSerializer(serializer);
 		}
 
+		// DISTRIBUTED LOCKER
+		IFusionCacheDistributedLocker? distributedLocker;
+
+		if (UseRegisteredDistributedLocker)
+		{
+			if (DistributedLockerServiceKey is null)
+			{
+				distributedLocker = serviceProvider.GetService<IFusionCacheDistributedLocker>();
+			}
+			else
+			{
+				distributedLocker = serviceProvider.GetKeyedService<IFusionCacheDistributedLocker>(DistributedLockerServiceKey);
+			}
+		}
+		else if (DistributedLockerFactory is not null)
+		{
+			distributedLocker = DistributedLockerFactory.Invoke(serviceProvider);
+		}
+		else
+		{
+			distributedLocker = DistributedLocker;
+		}
+
+		if (distributedLocker is null && ThrowIfMissingDistributedLocker)
+		{
+			throw new InvalidOperationException("A distributed locker has not been specified, or found in the DI container.");
+		}
+
+		if (distributedLocker is not null)
+		{
+			cache.SetupDistributedLocker(distributedLocker);
+		}
+
 		// DISTRIBUTED CACHE
 		IDistributedCache? distributedCache;
+		var registeredDistributedCacheIgnored = false;
 
 		if (UseRegisteredDistributedCache)
 		{
@@ -317,6 +366,7 @@ internal sealed class FusionCacheBuilder
 
 			if (IgnoreRegisteredMemoryDistributedCache && distributedCache is MemoryDistributedCache)
 			{
+				registeredDistributedCacheIgnored = true;
 				distributedCache = null;
 			}
 		}
@@ -331,7 +381,14 @@ internal sealed class FusionCacheBuilder
 
 		if (distributedCache is null && ThrowIfMissingDistributedCache)
 		{
-			throw new InvalidOperationException("A distributed cache has not been specified, or found in the DI container.");
+			if (registeredDistributedCacheIgnored)
+			{
+				throw new InvalidOperationException("A suitable distributed cache has not been specified, or found in the DI container. NOTE: a MemoryDistributedCache has been found, but ignoreMemoryDistributedCache was set to true, so it has been ignored.");
+			}
+			else
+			{
+				throw new InvalidOperationException("A distributed cache has not been specified, or found in the DI container.");
+			}
 		}
 
 		if (distributedCache is not null)

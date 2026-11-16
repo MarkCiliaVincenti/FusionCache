@@ -41,15 +41,15 @@ internal sealed class StandardMemoryLocker
 
 	private SemaphoreSlim GetSemaphore(string cacheName, string cacheInstanceId, string key, ILogger? logger)
 	{
-		object? _semaphore;
+		SemaphoreSlim? _semaphore;
 
 		if (_lockCache.TryGetValue(key, out _semaphore))
-			return (SemaphoreSlim)_semaphore!;
+			return _semaphore!;
 
 		lock (_lockPool[GetLockIndex(key)])
 		{
 			if (_lockCache.TryGetValue(key, out _semaphore))
-				return (SemaphoreSlim)_semaphore!;
+				return _semaphore!;
 
 			_semaphore = new SemaphoreSlim(1, 1);
 
@@ -71,7 +71,7 @@ internal sealed class StandardMemoryLocker
 					catch (Exception exc)
 					{
 						if (logger?.IsEnabled(LogLevel.Warning) ?? false)
-							logger.Log(LogLevel.Warning, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (K={CacheKey}): an error occurred while trying to dispose a SemaphoreSlim in the memory locker", cacheName, cacheInstanceId, key);
+							logger.Log(LogLevel.Warning, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (K={CacheKey}): an error occurred while trying to dispose a SemaphoreSlim in the standard memory locker", cacheName, cacheInstanceId, key);
 					}
 				},
 				(cacheName, cacheInstanceId, logger)
@@ -79,6 +79,18 @@ internal sealed class StandardMemoryLocker
 
 			return (SemaphoreSlim)_semaphore;
 		}
+	}
+
+	internal bool IsLockHeld(string key)
+	{
+		SemaphoreSlim? semaphore = null;
+		if (_lockCache.TryGetValue(key, out semaphore) == false)
+			return false;
+
+		if (semaphore is null)
+			return false;
+
+		return semaphore.CurrentCount == 0;
 	}
 
 	/// <inheritdoc/>
@@ -114,7 +126,7 @@ internal sealed class StandardMemoryLocker
 		catch (Exception exc)
 		{
 			if (logger?.IsEnabled(LogLevel.Warning) ?? false)
-				logger.Log(LogLevel.Warning, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): an error occurred while trying to release a SemaphoreSlim in the memory locker", cacheName, cacheInstanceId, operationId, key);
+				logger.Log(LogLevel.Warning, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): an error occurred while trying to release a SemaphoreSlim in the standard memory locker", cacheName, cacheInstanceId, operationId, key);
 		}
 	}
 

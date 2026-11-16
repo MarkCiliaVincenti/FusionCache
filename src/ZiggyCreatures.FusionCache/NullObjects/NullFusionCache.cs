@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using ZiggyCreatures.Caching.Fusion.Backplane;
 using ZiggyCreatures.Caching.Fusion.Events;
 using ZiggyCreatures.Caching.Fusion.Internals;
+using ZiggyCreatures.Caching.Fusion.Locking.Distributed;
 using ZiggyCreatures.Caching.Fusion.Plugins;
 using ZiggyCreatures.Caching.Fusion.Serialization;
 
@@ -75,7 +76,7 @@ public class NullFusionCache
 	/// <inheritdoc/>
 	public async ValueTask<TValue> GetOrSetAsync<TValue>(string key, Func<FusionCacheFactoryExecutionContext<TValue>, CancellationToken, Task<TValue>> factory, MaybeValue<TValue> failSafeDefaultValue = default, FusionCacheEntryOptions? options = null, IEnumerable<string>? tags = null, CancellationToken token = default)
 	{
-		return await factory(FusionCacheFactoryExecutionContext<TValue>.CreateFromEntries(key, key, options ?? DefaultEntryOptions, null, null, FusionCacheInternalUtils.NoTags), token);
+		return await factory(FusionCacheFactoryExecutionContext<TValue>.CreateFromEntries(key, key, options ?? DefaultEntryOptions, null, null, FusionCacheInternalUtils.NoTags), token).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc/>
@@ -262,6 +263,26 @@ public class NullFusionCache
 
 	/// <inheritdoc/>
 	public bool HasBackplane
+	{
+		get { return false; }
+	}
+
+	// DISTRIBUTED LOCKER
+
+	/// <inheritdoc/>
+	public IFusionCache SetupDistributedLocker(IFusionCacheDistributedLocker distributedLocker)
+	{
+		return this;
+	}
+
+	/// <inheritdoc/>
+	public IFusionCache RemoveDistributedLocker()
+	{
+		return this;
+	}
+
+	/// <inheritdoc/>
+	public bool HasDistributedLocker
 	{
 		get { return false; }
 	}

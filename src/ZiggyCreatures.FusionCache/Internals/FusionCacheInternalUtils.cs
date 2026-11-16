@@ -6,6 +6,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using ZiggyCreatures.Caching.Fusion.Internals.Backplane;
+using ZiggyCreatures.Caching.Fusion.Internals.Diagnostics;
 using ZiggyCreatures.Caching.Fusion.Internals.Distributed;
 using ZiggyCreatures.Caching.Fusion.Internals.Memory;
 
@@ -15,31 +16,39 @@ internal static class FusionCacheInternalUtils
 {
 	internal static class GeneratorUtils
 	{
-		private static readonly char[] _chars = "0123456789ABCDEFGHIJKLMNOPQRSTUV".ToCharArray();
 		private static long _lastId = DateTime.UtcNow.Ticks;
-		private static readonly ThreadLocal<char[]> _buffer = new(() => new char[13]);
 
 		private static string GenerateOperationId(long id)
 		{
 			// SEE: https://nimaara.com/2018/10/10/generating-ids-in-csharp.html
+			const string chars = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
+			const int length = 13;
+#if NETSTANDARD2_0
+			Span<char> buffer = stackalloc char[length];
+			WriteTo(buffer, id);
+			return buffer.ToString();
+#else
+			return string.Create(length, id, WriteTo);
+#endif
 
-			char[] buffer = _buffer.Value!;
-
-			buffer[0] = _chars[(int)(id >> 60) & 31];
-			buffer[1] = _chars[(int)(id >> 55) & 31];
-			buffer[2] = _chars[(int)(id >> 50) & 31];
-			buffer[3] = _chars[(int)(id >> 45) & 31];
-			buffer[4] = _chars[(int)(id >> 40) & 31];
-			buffer[5] = _chars[(int)(id >> 35) & 31];
-			buffer[6] = _chars[(int)(id >> 30) & 31];
-			buffer[7] = _chars[(int)(id >> 25) & 31];
-			buffer[8] = _chars[(int)(id >> 20) & 31];
-			buffer[9] = _chars[(int)(id >> 15) & 31];
-			buffer[10] = _chars[(int)(id >> 10) & 31];
-			buffer[11] = _chars[(int)(id >> 5) & 31];
-			buffer[12] = _chars[(int)id & 31];
-
-			return new string(buffer, 0, buffer.Length);
+			[MethodImpl(MethodImplOptions.AggressiveInlining)]
+			static void WriteTo(Span<char> buffer, long id)
+			{
+				// This order (from 12 to 0) eliminates bound checks for all the assignments except the first one.
+				buffer[12] = chars[(int)id & 31];
+				buffer[11] = chars[(int)(id >> 5) & 31];
+				buffer[10] = chars[(int)(id >> 10) & 31];
+				buffer[9] = chars[(int)(id >> 15) & 31];
+				buffer[8] = chars[(int)(id >> 20) & 31];
+				buffer[7] = chars[(int)(id >> 25) & 31];
+				buffer[6] = chars[(int)(id >> 30) & 31];
+				buffer[5] = chars[(int)(id >> 35) & 31];
+				buffer[4] = chars[(int)(id >> 40) & 31];
+				buffer[3] = chars[(int)(id >> 45) & 31];
+				buffer[2] = chars[(int)(id >> 50) & 31];
+				buffer[1] = chars[(int)(id >> 55) & 31];
+				buffer[0] = chars[(int)(id >> 60) & 31];
+			}
 		}
 
 		public static string GenerateOperationId()
@@ -72,9 +81,32 @@ internal static class FusionCacheInternalUtils
 		return DateTimeOffset.UtcNow.UtcTicks;
 	}
 
+	// RETURNS THE PREVIOUS VALUE (LIKE Interlocked.Exchange): IT ADVANCED ONLY IF THE RESULT IS < timestamp
+	public static long AdvanceTimestamp(ref long location, long timestamp)
+	{
+		// A PLAIN READ OF A long CAN BE TORN ON 32-BIT, WHILE Volatile.Read IS ATOMIC THERE TOO.
+		// Interlocked.Read WOULD ALSO BE ATOMIC, BUT IT IS A CompareExchange ON EVERY PLATFORM,
+		// WHILE Volatile.Read IS A NORMAL LOAD ON 64-BIT.
+		// SEE: https://learn.microsoft.com/en-us/dotnet/api/system.threading.volatile#remarks
+		var current = Volatile.Read(ref location);
+		while (timestamp > current)
+		{
+			var observed = Interlocked.CompareExchange(ref location, timestamp, current);
+			if (observed == current)
+				return current;
+
+			current = observed;
+		}
+
+		return current;
+	}
+
 	public static string MaybeGenerateOperationId(ILogger? logger)
 	{
-		if (logger is null)
+		//if (logger is null)
+		//	return string.Empty;
+
+		if (logger is null && Activities.HasAnyListeners() == false)
 			return string.Empty;
 
 		return GeneratorUtils.GenerateOperationId();
@@ -533,27 +565,11 @@ internal static class FusionCacheInternalUtils
 		return true;
 	}
 
-	public static Task<long> SharedTagExpirationDataFactoryAsync(FusionCacheFactoryExecutionContext<long> ctx, CancellationToken token)
-	{
-		var res = 0L;
-
-		if (ctx.HasStaleValue)
-		{
-			res = ctx.StaleValue.Value;
-		}
-
-		if (res == 0L)
-		{
-			// IF THE VALUE IS 0 (ZERO) -> WE DON'T NEED TO WRITE TO DISTRIBUTED AND NOTIFY THE OTHER NODES
-			ctx.Options.SkipDistributedCacheWrite = true;
-			ctx.Options.SkipBackplaneNotifications = true;
-		}
-
-		return Task.FromResult(res);
-	}
-
 	public static long SharedTagExpirationDataFactory(FusionCacheFactoryExecutionContext<long> ctx, CancellationToken token)
 	{
+		// IF WE ARE EXECUTING THE FACTORY -> NO NEED TO NOTIFY THE OTHER NODES
+		ctx.Options.SkipBackplaneNotifications = true;
+
 		var res = 0L;
 
 		if (ctx.HasStaleValue)
@@ -563,12 +579,17 @@ internal static class FusionCacheInternalUtils
 
 		if (res == 0L)
 		{
-			// IF THE VALUE IS 0 (ZERO) -> WE DON'T NEED TO WRITE TO DISTRIBUTED AND NOTIFY THE OTHER NODES
+			// IF THE VALUE IS 0 (ZERO) -> NO NEED TO WRITE TO UPDATE THE DISTRIBUTED CACHE
 			ctx.Options.SkipDistributedCacheWrite = true;
-			ctx.Options.SkipBackplaneNotifications = true;
 		}
 
 		return res;
+	}
+
+	public static Task<long> SharedTagExpirationDataFactoryAsync(FusionCacheFactoryExecutionContext<long> ctx, CancellationToken token)
+	{
+		var res = SharedTagExpirationDataFactory(ctx, token);
+		return Task.FromResult(res);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]

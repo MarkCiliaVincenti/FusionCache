@@ -51,7 +51,7 @@ internal sealed class ExperimentalMemoryLocker
 
 		// TODO: WHAT DO?
 		//await tcs.Task.WaitAsync(timeout, token);
-		await tcs.Task;
+		await tcs.Task.ConfigureAwait(false);
 
 		return tcs.Task;
 
@@ -110,7 +110,7 @@ internal sealed class ExperimentalMemoryLocker
 		catch (Exception exc)
 		{
 			if (logger?.IsEnabled(LogLevel.Warning) ?? false)
-				logger.Log(LogLevel.Warning, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): an error occurred while trying to release a SemaphoreSlim in the memory locker", cacheName, cacheInstanceId, operationId, key);
+				logger.Log(LogLevel.Warning, exc, "FUSION [N={CacheName} I={CacheInstanceId}] (O={CacheOperationId} K={CacheKey}): an error occurred while trying to release a SemaphoreSlim in the experimental memory locker", cacheName, cacheInstanceId, operationId, key);
 		}
 	}
 

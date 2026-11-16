@@ -1,9 +1,11 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using FusionCacheTests.Stuff;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Xunit;
 using ZiggyCreatures.Caching.Fusion;
+using ZiggyCreatures.Caching.Fusion.Locking;
 using ZiggyCreatures.Caching.Fusion.NullObjects;
 
 namespace FusionCacheTests;
@@ -141,6 +143,64 @@ public partial class L1Tests
 	}
 
 	[Fact]
+	public async Task HandlesBackgroundFactoryExceptionAsync()
+	{
+		var throttleDuration = TimeSpan.FromSeconds(2);
+
+		var logger = CreateXUnitLogger<FusionCache>();
+
+		using var cache = new FusionCache(new FusionCacheOptions(), logger: logger);
+
+		var value1 = await cache.GetOrSetAsync<int>(
+			"foo",
+			async _ => 1,
+			options => options
+				.SetDuration(TimeSpan.FromSeconds(1))
+				.SetFailSafe(true, throttleDuration: throttleDuration),
+			token: TestContext.Current.CancellationToken
+		);
+
+		await Task.Delay(1_100, TestContext.Current.CancellationToken);
+
+		var value2 = await cache.GetOrSetAsync<int>(
+			"foo",
+			async _ =>
+			{
+				await Task.Delay(1_000);
+				throw new Exception("Whatever");
+			},
+			options => options
+				.SetDuration(TimeSpan.FromSeconds(1))
+				.SetFailSafe(true, throttleDuration: throttleDuration)
+				.SetFactoryTimeouts(TimeSpan.FromMilliseconds(100)),
+			token: TestContext.Current.CancellationToken
+		);
+
+		// WAIT FOR THE BACKGROUND FACTORY TO FAIL
+		await Task.Delay(throttleDuration.PlusALittleBit(), TestContext.Current.CancellationToken);
+
+		var value3 = await cache.GetOrSetAsync<int>(
+			"foo",
+			async (ctx, _) =>
+			{
+				await Task.Delay(1_000);
+				return ctx.Fail("Whatever");
+			},
+			options => options
+				.SetDuration(TimeSpan.FromSeconds(1))
+				.SetFailSafe(true, throttleDuration: throttleDuration)
+				.SetFactoryTimeouts(TimeSpan.FromMilliseconds(100)),
+			token: TestContext.Current.CancellationToken
+		);
+
+		// WAIT FOR THE BACKGROUND FACTORY TO FAIL
+		await Task.Delay(1_000, TestContext.Current.CancellationToken);
+
+		Assert.Equal(value1, value2);
+		Assert.Equal(value2, value3);
+	}
+
+	[Fact]
 	public async Task SetOverwritesAnExistingValueAsync()
 	{
 		using var cache = new FusionCache(new FusionCacheOptions());
@@ -251,8 +311,8 @@ public partial class L1Tests
 		TestOutput.WriteLine($"Elapsed (with extra pad): {elapsedMs} ms");
 
 		Assert.Equal(-1, res);
-		Assert.True(elapsedMs >= outerCancelDelayMs, "Elapsed is less than outer cancel");
-		Assert.True(elapsedMs < factoryDelayMs, "Elapsed is not less than factory delay");
+		Assert.True(elapsedMs >= outerCancelDelayMs, $"Elapsed ({elapsedMs}ms) is less than outer cancel ({outerCancelDelayMs}ms)");
+		Assert.True(elapsedMs < factoryDelayMs, $"Elapsed ({elapsedMs}ms) is not less than factory delay ({factoryDelayMs}ms)");
 	}
 
 	[Fact]
@@ -334,25 +394,29 @@ public partial class L1Tests
 	public async Task AdaptiveCachingAsync()
 	{
 		using var cache = new FusionCache(new FusionCacheOptions());
-		var dur = TimeSpan.FromMinutes(5);
-		cache.DefaultEntryOptions.Duration = dur;
+		var duration = TimeSpan.FromMinutes(5);
+		cache.DefaultEntryOptions.Duration = duration;
 		FusionCacheEntryOptions? innerOpt = null;
 
-		var default3 = await cache.GetOrSetAsync<int>("foo", async (ctx, _) =>
+		var default3 = await cache.GetOrSetAsync<int>(
+			"foo",
+			async (ctx, _) =>
 			{
 				ctx.Options.Duration = TimeSpan.FromSeconds(1);
 
 				innerOpt = ctx.Options;
 
 				return 3;
-			}, opt => opt.SetFailSafe(false)
-, token: TestContext.Current.CancellationToken);
+			},
+			opt => opt.SetFailSafe(false),
+			token: TestContext.Current.CancellationToken
+		);
 
 		await Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
 
 		var maybeValue = await cache.TryGetAsync<int>("foo", token: TestContext.Current.CancellationToken);
 
-		Assert.Equal(dur, TimeSpan.FromMinutes(5));
+		Assert.Equal(duration, TimeSpan.FromMinutes(5));
 		Assert.Equal(cache.DefaultEntryOptions.Duration, TimeSpan.FromMinutes(5));
 		Assert.Equal(innerOpt!.Duration, TimeSpan.FromSeconds(1));
 		Assert.False(maybeValue.HasValue);
@@ -361,9 +425,11 @@ public partial class L1Tests
 	[Fact]
 	public async Task AdaptiveCachingWithBackgroundFactoryCompletionAsync()
 	{
-		using var cache = new FusionCache(new FusionCacheOptions());
-		var dur = TimeSpan.FromMinutes(5);
-		cache.DefaultEntryOptions.Duration = dur;
+		var logger = CreateXUnitLogger<FusionCache>();
+
+		using var cache = new FusionCache(new FusionCacheOptions(), logger: logger);
+		var duration = TimeSpan.FromMinutes(5);
+		cache.DefaultEntryOptions.Duration = duration;
 
 		// SET WITH 1s DURATION + FAIL-SAFE
 		await cache.SetAsync("foo", 21, options => options.SetDuration(TimeSpan.FromSeconds(1)).SetFailSafe(true), token: TestContext.Current.CancellationToken);
@@ -372,7 +438,9 @@ public partial class L1Tests
 		await Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
 
 		// CALL GetOrSET WITH A 1s SOFT TIMEOUT AND A FACTORY RUNNING FOR AT LEAST 3s
-		var value21 = await cache.GetOrSetAsync<int>("foo", async (ctx, _) =>
+		var value21 = await cache.GetOrSetAsync<int>(
+			"foo",
+			async (ctx, _) =>
 			{
 				// WAIT 3s
 				await Task.Delay(TimeSpan.FromSeconds(3));
@@ -381,8 +449,10 @@ public partial class L1Tests
 				ctx.Options.SetDuration(TimeSpan.FromSeconds(5)).SetFailSafe(false);
 
 				return 42;
-			}, opt => opt.SetFactoryTimeouts(TimeSpan.FromSeconds(1)).SetFailSafe(true)
-, token: TestContext.Current.CancellationToken);
+			},
+			opt => opt.SetFactoryTimeouts(TimeSpan.FromSeconds(1)).SetFailSafe(true),
+			token: TestContext.Current.CancellationToken
+		);
 
 		// WAIT FOR 3s (+ EXTRA 1s) SO THE FACTORY COMPLETES IN THE BACKGROUND
 		await Task.Delay(TimeSpan.FromSeconds(3 + 1), TestContext.Current.CancellationToken);
@@ -396,7 +466,7 @@ public partial class L1Tests
 		// SEE THAT FAIL-SAFE CANNOT BE ACTIVATED (BECAUSE IT WAS DISABLED IN THE FACTORY)
 		var noValue = await cache.TryGetAsync<int>("foo", options => options.SetFailSafe(true), token: TestContext.Current.CancellationToken);
 
-		Assert.Equal(dur, TimeSpan.FromMinutes(5));
+		Assert.Equal(duration, TimeSpan.FromMinutes(5));
 		Assert.Equal(cache.DefaultEntryOptions.Duration, TimeSpan.FromMinutes(5));
 		Assert.Equal(21, value21);
 		Assert.Equal(42, value42);
@@ -409,12 +479,16 @@ public partial class L1Tests
 		using var cache = new FusionCache(new FusionCacheOptions());
 		var options = new FusionCacheEntryOptions(TimeSpan.FromSeconds(10));
 
-		_ = await cache.GetOrSetAsync<int>("foo", async (ctx, _) =>
+		_ = await cache.GetOrSetAsync<int>(
+			"foo",
+			async (ctx, _) =>
 			{
 				ctx.Options.Duration = TimeSpan.FromSeconds(20);
 				return 42;
-			}, options
-, token: TestContext.Current.CancellationToken);
+			},
+			options,
+			token: TestContext.Current.CancellationToken
+		);
 
 		Assert.Equal(options.Duration, TimeSpan.FromSeconds(10));
 	}
@@ -673,7 +747,7 @@ public partial class L1Tests
 		var v3 = await cache.GetOrSetAsync<long>("foo", async _ => eagerRefreshValue, token: TestContext.Current.CancellationToken);
 
 		// WAIT FOR THE BACKGROUND FACTORY (EAGER REFRESH) TO COMPLETE
-		await Task.Delay(TimeSpan.FromMilliseconds(250), TestContext.Current.CancellationToken);
+		await Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
 
 		// GET THE REFRESHED VALUE
 		var v4 = await cache.GetOrSetAsync<long>("foo", async _ => DateTimeOffset.UtcNow.Ticks, token: TestContext.Current.CancellationToken);
@@ -724,7 +798,7 @@ public partial class L1Tests
 		var duration = TimeSpan.FromSeconds(2);
 		var lockTimeout = TimeSpan.FromSeconds(10);
 		var eagerRefreshThreshold = 0.1f;
-		var eagerRefreshDelay = TimeSpan.FromSeconds(5);
+		var factoryDelay = TimeSpan.FromSeconds(2);
 
 		using var cache = new FusionCache(new FusionCacheOptions(), memoryLocker: memoryLocker, logger: CreateXUnitLogger<FusionCache>());
 
@@ -752,7 +826,7 @@ public partial class L1Tests
 			{
 				eagerRefreshIsStarted = true;
 
-				await Task.Delay(eagerRefreshDelay);
+				await Task.Delay(factoryDelay);
 
 				ct.ThrowIfCancellationRequested();
 
@@ -764,13 +838,13 @@ public partial class L1Tests
 		);
 
 		// ALLOW EAGER REFRESH TO START
-		await Task.Delay(TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken);
+		await Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken);
 
 		// CANCEL
 		cts.Cancel();
 
 		// WAIT FOR THE BACKGROUND FACTORY (EAGER REFRESH) TO COMPLETE
-		await Task.Delay(eagerRefreshDelay.PlusALittleBit(), TestContext.Current.CancellationToken);
+		await Task.Delay(factoryDelay.PlusASecond(), TestContext.Current.CancellationToken);
 
 		// GET THE REFRESHED VALUE
 		var sw = Stopwatch.StartNew();
@@ -791,6 +865,63 @@ public partial class L1Tests
 		Assert.True(v4 > v3);
 		Assert.True(v4 == v3EagerResult);
 		Assert.False(v4 == v4SupposedlyNot);
+	}
+
+	[Fact]
+	public async Task CanHandleEagerRefreshWithFailingFactoryAsync()
+	{
+		var logger = CreateXUnitLogger<FusionCache>();
+
+		var locker = new StandardMemoryLocker();
+		var duration = TimeSpan.FromSeconds(2);
+		var eagerRefreshThreshold = 0.2f;
+		var eagerDuration = TimeSpan.FromMilliseconds(duration.TotalMilliseconds * eagerRefreshThreshold);
+
+		var options = new FusionCacheOptions
+		{
+			DefaultEntryOptions = {
+				Duration = duration,
+				EagerRefreshThreshold = eagerRefreshThreshold
+			}
+		};
+		using var cache = new FusionCache(options, memoryLocker: locker, logger: logger);
+
+		Assert.False(locker.IsLockHeld("foo"));
+		Assert.False(locker.IsLockHeld("bar"));
+
+		// EXECUTE FACTORY
+		var foo1 = await cache.GetOrSetAsync<long>("foo", async _ => DateTimeOffset.UtcNow.Ticks, token: TestContext.Current.CancellationToken);
+		var bar1 = await cache.GetOrSetAsync<long>("bar", async _ => DateTimeOffset.UtcNow.Ticks, token: TestContext.Current.CancellationToken);
+
+		Assert.False(locker.IsLockHeld("foo"));
+		Assert.False(locker.IsLockHeld("bar"));
+
+		// USE CACHED VALUE
+		var foo2 = await cache.GetOrSetAsync<long>("foo", async _ => DateTimeOffset.UtcNow.Ticks, token: TestContext.Current.CancellationToken);
+		var bar2 = await cache.GetOrSetAsync<long>("bar", async _ => DateTimeOffset.UtcNow.Ticks, token: TestContext.Current.CancellationToken);
+
+		Assert.Equal(foo1, foo2);
+		Assert.Equal(bar1, bar2);
+		Assert.False(locker.IsLockHeld("foo"));
+		Assert.False(locker.IsLockHeld("bar"));
+
+		// WAIT FOR EAGER REFRESH THRESHOLD TO BE HIT
+		await Task.Delay(eagerDuration.PlusALittleBit(), TestContext.Current.CancellationToken);
+
+		// EAGER REFRESH KICKS IN
+		var eagerRefreshValue = DateTimeOffset.UtcNow.Ticks;
+		logger.LogInformation("EAGER REFRESH VALUE: {EagerRefreshValue}", eagerRefreshValue);
+		// NON-ASYNC FACTORY, THROWING WITHOUT THE INTERNAL ASYNC MACHINERY
+		var foo3 = await cache.GetOrSetAsync<long>("foo", _ => throw new Exception("Simulated failure"), token: TestContext.Current.CancellationToken);
+		// NORMAL ASYNC FACTORY, THROWING WITHIN THE INTERNAL ASYNC MACHINERY
+		var bar3 = await cache.GetOrSetAsync<long>("bar", async _ => throw new Exception("Simulated failure"), token: TestContext.Current.CancellationToken);
+
+		await Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+
+		Assert.Equal(foo2, foo3);
+		Assert.Equal(bar2, bar3);
+		Assert.False(locker.IsLockHeld("foo"));
+		Assert.False(locker.IsLockHeld("bar"));
 	}
 
 	[Fact]
@@ -1222,6 +1353,126 @@ public partial class L1Tests
 	}
 
 	[Fact]
+	public async Task CanRemoveByTagWithBehaviorExpireAsync()
+	{
+		var logger = CreateXUnitLogger<FusionCache>();
+		var options = new FusionCacheOptions()
+		{
+			IncludeTagsInLogs = true,
+			RemoveByTagBehavior = RemoveByTagBehavior.Expire
+		};
+		using var cache = new FusionCache(options, logger: logger);
+
+		await cache.SetAsync<int>("foo", 1, tags: ["x", "y"], token: TestContext.Current.CancellationToken);
+		await cache.SetAsync<int>("bar", 2, tags: ["y", "z"], token: TestContext.Current.CancellationToken);
+
+		var foo1 = await cache.GetOrSetAsync<int>("foo", async _ => 11, tags: ["x", "y"], token: TestContext.Current.CancellationToken);
+		var bar1 = await cache.GetOrSetAsync<int>("bar", async _ => 22, tags: ["y", "z"], token: TestContext.Current.CancellationToken);
+
+		Assert.Equal(1, foo1);
+		Assert.Equal(2, bar1);
+
+		await cache.RemoveByTagAsync("x", token: TestContext.Current.CancellationToken);
+
+		var foo2 = await cache.TryGetAsync<int>("foo", token: TestContext.Current.CancellationToken);
+		var foo3 = await cache.TryGetAsync<int>("foo", options => options.SetAllowStaleOnReadOnly(), token: TestContext.Current.CancellationToken);
+		var bar2 = await cache.TryGetAsync<int>("bar", token: TestContext.Current.CancellationToken);
+		var bar3 = await cache.TryGetAsync<int>("bar", options => options.SetAllowStaleOnReadOnly(), token: TestContext.Current.CancellationToken);
+
+		Assert.False(foo2.HasValue);
+		Assert.True(foo3.HasValue);
+		Assert.Equal(1, foo3.Value);
+		Assert.True(bar2.HasValue);
+		Assert.Equal(2, bar2.Value);
+		Assert.True(bar3.HasValue);
+		Assert.Equal(2, bar3.Value);
+	}
+
+	[Fact]
+	public async Task CanRemoveByTagWithBehaviorRemoveAsync()
+	{
+		var logger = CreateXUnitLogger<FusionCache>();
+		var options = new FusionCacheOptions()
+		{
+			IncludeTagsInLogs = true,
+			RemoveByTagBehavior = RemoveByTagBehavior.Remove
+		};
+		using var cache = new FusionCache(options, logger: logger);
+
+		await cache.SetAsync<int>("foo", 1, tags: ["x", "y"], token: TestContext.Current.CancellationToken);
+		await cache.SetAsync<int>("bar", 2, tags: ["y", "z"], token: TestContext.Current.CancellationToken);
+
+		var foo1 = await cache.GetOrSetAsync<int>("foo", async _ => 11, tags: ["x", "y"], token: TestContext.Current.CancellationToken);
+		var bar1 = await cache.GetOrSetAsync<int>("bar", async _ => 22, tags: ["y", "z"], token: TestContext.Current.CancellationToken);
+
+		Assert.Equal(1, foo1);
+		Assert.Equal(2, bar1);
+
+		await cache.RemoveByTagAsync("x", token: TestContext.Current.CancellationToken);
+
+		var foo2 = await cache.TryGetAsync<int>("foo", token: TestContext.Current.CancellationToken);
+		var foo3 = await cache.TryGetAsync<int>("foo", options => options.SetAllowStaleOnReadOnly(), token: TestContext.Current.CancellationToken);
+		var bar2 = await cache.TryGetAsync<int>("bar", token: TestContext.Current.CancellationToken);
+		var bar3 = await cache.TryGetAsync<int>("bar", options => options.SetAllowStaleOnReadOnly(), token: TestContext.Current.CancellationToken);
+
+		Assert.False(foo2.HasValue);
+		Assert.False(foo3.HasValue);
+		Assert.True(bar2.HasValue);
+		Assert.Equal(2, bar2.Value);
+		Assert.True(bar3.HasValue);
+		Assert.Equal(2, bar3.Value);
+	}
+
+	[Fact]
+	public async Task CanRemoveByTagWithBehaviorRemoveIgnoreStaleDataAsync()
+	{
+		var logger = CreateXUnitLogger<FusionCache>();
+		var options = new FusionCacheOptions()
+		{
+			IncludeTagsInLogs = true,
+			RemoveByTagBehavior = RemoveByTagBehavior.Remove,
+			DefaultEntryOptions = {
+				IsFailSafeEnabled = true,
+			}
+		};
+		using var cache = new FusionCache(options, logger: logger);
+
+		await cache.SetAsync<int>("foo", 1, tags: ["x", "y"], token: TestContext.Current.CancellationToken);
+
+		var foo1 = await cache.GetOrSetAsync<int>(
+			"foo",
+			async (ctx, ct) =>
+			{
+				if (ctx.HasStaleValue)
+					return ctx.NotModified();
+
+				return 11;
+			},
+			tags: ["x", "y"],
+			token: TestContext.Current.CancellationToken
+		);
+
+		Assert.Equal(1, foo1);
+
+		await cache.RemoveByTagAsync("x", token: TestContext.Current.CancellationToken);
+
+		var foo2 = await cache.GetOrSetAsync<int>(
+			"foo",
+			async (ctx, ct) =>
+			{
+				if (ctx.HasStaleValue)
+					return ctx.NotModified();
+
+				return 2;
+			},
+			tags: ["x", "y"],
+			token: TestContext.Current.CancellationToken
+		);
+
+		Assert.Equal(2, foo2);
+	}
+
+	[Fact]
 	public async Task CanClearAsync()
 	{
 		var logger = CreateXUnitLogger<FusionCache>();
@@ -1530,4 +1781,147 @@ public partial class L1Tests
 		Assert.Equal("foo", key2);
 		Assert.Equal("foo", originalKey2);
 	}
+
+	[Fact]
+	public async Task SoftTimeoutDoesNotBreakStampedeProtectionAsync()
+	{
+		var logger = CreateXUnitLogger<FusionCache>();
+
+		using var cache = new FusionCache(
+			new FusionCacheOptions
+			{
+				DefaultEntryOptions = {
+					Duration = TimeSpan.FromSeconds(1),
+					IsFailSafeEnabled = true,
+					FailSafeThrottleDuration = TimeSpan.FromSeconds(10),
+					FailSafeMaxDuration = TimeSpan.FromMinutes(10),
+					FactorySoftTimeout = TimeSpan.FromSeconds(1)
+				}
+			},
+			logger: logger
+		);
+
+		var factoryCallsCount = 0;
+
+		await cache.SetAsync<int>(
+			"foo",
+			42,
+			token: TestContext.Current.CancellationToken
+		);
+
+		// WAIT FOR EXPIRATION
+		await Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+
+		// CONCURRENT REQUESTS (ONE OF THEM WILL EXECUTE THE FACTORY)
+		await Parallel.ForAsync(0, 10, async (_, token) =>
+		{
+			await cache.GetOrSetAsync<int>(
+				"foo",
+				async ct =>
+				{
+					Interlocked.Increment(ref factoryCallsCount);
+					await Task.Delay(TimeSpan.FromSeconds(10), ct);
+					return 42;
+				},
+				token: token
+			);
+		});
+
+		// WAIT FOR SOFT TIMEOUT (1 SEC) + 1 EXTRA SEC
+		await Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+
+		// MORE CONCURRENT REQUESTS
+		await Parallel.ForAsync(0, 10, async (_, token) =>
+		{
+			await cache.GetOrSetAsync<int>(
+				"foo",
+				async ct =>
+				{
+					Interlocked.Increment(ref factoryCallsCount);
+					await Task.Delay(TimeSpan.FromSeconds(10), ct);
+					return 42;
+				},
+				token: token
+			);
+		});
+
+		Assert.Equal(1, factoryCallsCount);
+	}
+
+	[Fact]
+	public async Task EagerRefreshDoesNotBreakStampedeProtectionAsync()
+	{
+		using var cache = new FusionCache(new FusionCacheOptions
+		{
+			DefaultEntryOptions = {
+				Duration = TimeSpan.FromSeconds(10),
+				EagerRefreshThreshold = 0.1f
+			}
+		});
+
+		var factoryCallsCount = 0;
+
+		await cache.SetAsync<int>(
+			"foo",
+			42,
+			token: TestContext.Current.CancellationToken
+		);
+
+		await Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+
+		var tasks = new ConcurrentBag<Task>();
+		var cts = new CancellationTokenSource(4_000);
+
+		while (cts.IsCancellationRequested == false)
+		{
+			var task = cache.GetOrSetAsync<int>(
+				"foo",
+				async ct =>
+				{
+					Interlocked.Increment(ref factoryCallsCount);
+					await Task.Delay(TimeSpan.FromSeconds(5), ct);
+					return 42;
+				},
+				token: TestContext.Current.CancellationToken
+			);
+			tasks.Add(task.AsTask());
+		}
+
+		await Task.WhenAll(tasks);
+
+		Assert.Equal(1, factoryCallsCount);
+	}
+
+	//[Fact]
+	//public async Task RemoveByTagStarDoesAClearAsync()
+	//{
+	//	using var cache = new FusionCache(new FusionCacheOptions
+	//	{
+	//		DefaultEntryOptions = {
+	//			Duration = TimeSpan.FromSeconds(10)
+	//		}
+	//	});
+
+	//	var clearCallsCount = 0;
+
+	//	cache.Events.Clear += (sender, e) =>
+	//	{
+	//		clearCallsCount++;
+	//	};
+
+	//	await cache.SetAsync<int>("foo", 1, token: TestContext.Current.CancellationToken);
+	//	await cache.SetAsync<int>("bar", 2, token: TestContext.Current.CancellationToken);
+	//	await cache.SetAsync<int>("baz", 3, token: TestContext.Current.CancellationToken);
+
+	//	await cache.RemoveByTagAsync("*", token: TestContext.Current.CancellationToken);
+
+	//	var maybeFoo = await cache.TryGetAsync<int>("foo", token: TestContext.Current.CancellationToken);
+	//	var maybeBar = await cache.TryGetAsync<int>("bar", token: TestContext.Current.CancellationToken);
+	//	var maybeBaz = await cache.TryGetAsync<int>("baz", token: TestContext.Current.CancellationToken);
+
+	//	Assert.False(maybeFoo.HasValue);
+	//	Assert.False(maybeBar.HasValue);
+	//	Assert.False(maybeBaz.HasValue);
+	//	Assert.Equal(1, clearCallsCount);
+	//}
 }
